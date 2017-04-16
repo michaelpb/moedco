@@ -1,0 +1,18 @@
+{
+  "name": "tinytiny",
+  "version": "0.0.1",
+  "description": "Tiny templating system with django/jinja like syntax",
+  "main": "index.js",
+  "scripts": {
+    "test": "node ./test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@bitbucket.org/michaelb/tinytiny.git"
+  },
+  "keywords": ["templating", "django", "jinja"],
+  "author": "Michael B <michaelpb@gmail.com> (http://michaelb.org/)",
+  "license": "LGPL-3.0",
+  "homepage": "https://bitbucket.org/michaelb/tinytiny",
+  "dependencies": {}
+}

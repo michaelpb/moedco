@@ -1,0 +1,89 @@
+<html>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+
+    <title>Test</title>
+    <head>
+        <template name="todo-item">
+            <style scoped>
+                todo-item {
+                    display: block;
+                    font-size: 1.4em;
+                }
+                todo-item > button {
+                    font-size: 15px;
+                    width: 30px;
+                    height: 30px;
+                }
+            </style>
+            <button onclick=toggle>{% if active %}✓{% endif %}</button>
+            <label>{{ content }}</label>
+            <script>
+                this.types = {
+                    active: moedco.types.bool,
+                    itemid: moedco.types.integer,
+                    ontoggle: moedco.types.func,
+                };
+                function toggle() {
+                    this.props.ontoggle(this.props.itemid);
+                }
+            </script>
+        </template>
+
+        <template name="todo-mvc">
+            {% for pair in list %}
+                <todo-item active="{{ pair.active }}" ontoggle:="toggle" itemid="{{ pair.id }}">
+                    {{ pair.text }}
+                </todo-item>
+            {% endfor %}
+
+            <input name="add-item" value="{{ currentText }}" onkeyup=currentItemChanged placeholder="type in new item" />
+            <button onclick=addItem>Add</button>
+
+            <script>
+                function toggle(itemId) {
+                    const {active} = this.props.list[itemId];
+                    this.props.list[itemId].active = !active;
+                    this.rerender();
+                }
+
+                function currentItemChanged(ev) {
+                    this.props.currentText = ev.target.value;
+                }
+
+                function addItem() {
+                    this.props.list.push({
+                        active: false,
+                        text: this.props.currentText,
+                        id: this.props.list.length,
+                    });
+                    this.props.currentText = '';
+                    this.rerender();
+                }
+            </script>
+        </template>
+    </head>
+    <body>
+        <h1>todos</h1>
+        <todo-mvc props.list=TODO></todo-mvc>
+
+        <script>
+            // Small hack to get it working
+            module = {};
+            module.exports = {};
+            window.props = {};
+            window.props.TODO = [
+                {
+                    id: 0,
+                    text: 'example',
+                    active: false,
+                },
+            ];
+        </script>
+        <script src="./tinytiny/index.js"></script>
+        <script src="./moedco.js"></script>
+        <script>
+            moedco.defineAll();
+        </script>
+    </body>
+</html>
+
