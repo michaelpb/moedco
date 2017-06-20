@@ -4,7 +4,7 @@
     <title>Test</title>
     <head>
         <template name="todo-item">
-            <style scoped>
+            <style>
                 todo-item {
                     display: block;
                     font-size: 1.4em;
@@ -15,23 +15,23 @@
                     height: 30px;
                 }
             </style>
-            <button onclick=toggle>{% if active %}✓{% endif %}</button>
+            <button onclick=toggle>{% if not active %}✓{% endif %}</button>
             <label>{{ content }}</label>
             <script>
                 this.types = {
                     active: moedco.types.bool,
-                    itemid: moedco.types.integer,
+                    key: moedco.types.integer,
                     ontoggle: moedco.types.func,
                 };
                 function toggle() {
-                    this.props.ontoggle(this.props.itemid);
+                    this.props.ontoggle(this.props.key);
                 }
             </script>
         </template>
 
         <template name="todo-mvc">
             {% for pair in list %}
-                <todo-item active="{{ pair.active }}" ontoggle:="toggle" itemid="{{ pair.id }}">
+                <todo-item active="{{ pair.active }}" ontoggle:="toggle" key="{{ pair.id }}">
                     {{ pair.text }}
                 </todo-item>
             {% endfor %}
@@ -40,9 +40,9 @@
             <button onclick=addItem>Add</button>
 
             <script>
-                function toggle(itemId) {
-                    const {active} = this.props.list[itemId];
-                    this.props.list[itemId].active = !active;
+                function toggle(key) {
+                    const {active} = this.props.list[key];
+                    this.props.list[key].active = !active;
                     this.rerender();
                 }
 
@@ -71,17 +71,27 @@
             module = {};
             module.exports = {};
             window.props = {};
-            window.props.TODO = [
-                {
-                    id: 0,
-                    text: 'example',
-                    active: false,
-                },
-            ];
+            window.props.TODO = [];
+            for (var i = 0; i < 1000; i++) {
+                window.props.TODO.push({
+                    id: i,
+                    text: `example ${i}`,
+                    active: true,
+                });
+            }
         </script>
         <script src="./tinytiny/index.js"></script>
         <script src="./moedco.js"></script>
+        <script src="./node_modules/set-dom/dist/set-dom.js"></script>
+        <script src="./node_modules/morphdom/dist/morphdom.js"></script>
         <script>
+            const require = pkg => ({
+                'set-dom': window.setDOM,
+                'tinytiny': window.TinyTiny,
+                'morphdom': window.morphdom,
+            }[pkg]);
+            moedco.defaultOptions.reconciliationEngine = 'morphdom';
+            //moedco.defaultOptions.reconciliationEngine = 'set-dom';
             moedco.defineAll();
         </script>
     </body>

@@ -18,6 +18,7 @@ moedco.types = {
     func: val => val instanceof Function,
 };
 moedco.types.string.skipParse = true;
+moedco.types.func.skipParse = true;
 
 moedco.ON_EVENTS = new Set([
     'onclick', 'ondblclick', 'onmousedown', 'onmouseup', 'onmouseover',
@@ -29,7 +30,70 @@ moedco.ON_EVENTS = new Set([
 ]);
 
 moedco.ON_EVENT_SELECTOR = Array.from(moedco.ON_EVENTS).map(name => `[${name}]`).join(',');
-moedco.JSON_REGEX = /^\s*[\{\[].*^[\}\]]\s*$/;
+
+moedco.templatingEngines = {
+    Backtick: () => str => ctx => {
+        const code = JSON.stringify(str).replace(/`/, "\`").slice(1, -1);
+        return moedco.utils.scopedEval({}, ctx, `return ${code};`);
+    },
+    TinyTiny: () => {
+        const TinyTiny = require("tinytiny");
+        return TinyTiny;
+    },
+};
+
+moedco.reconciliationEngines = {
+    none: () => (component, html) => {
+        if (component.options.shadow) {
+            component.shadow.innerHTML = html;
+        } else {
+            component.innerHTML = html;
+        }
+    },
+    'set-dom': () => {
+        const setDOM = require("set-dom");
+        setDOM.KEY = 'key';
+        return (component, html) => {
+            if (!component.mounted) {
+                component.innerHTML = html;
+            } else {
+                setDOM(component, component.wrapHTML(html));
+            }
+        };
+    },
+    'morphdom': () => {
+        const morphdom = require("morphdom");
+        // TODO, a mess
+        const opts = {
+            getNodeKey: el =>
+                ((el.attributes || {}).key || {value: undefined}).value || el.id,
+            onBeforeElChildrenUpdated: (fromEl, toEl) => {
+                return !toEl.tagName.includes('-');
+            },
+            childrenOnly: true,
+        };
+        return (component, html) => {
+            if (!component.mounted) {
+                component.innerHTML = html;
+            } else {
+                morphdom(component, `<div>${html}</div>`, opts);
+            }
+        };
+    },
+};
+
+moedco.defaultOptions = {
+    reconciliationEngine: 'none',
+    templatingEngine: 'TinyTiny',
+};
+
+moedco.Options = class {
+    constructor(...args) {
+        Object.assign(this, moedco.defaultOptions, ...args);
+        this.reconciliationEngine = moedco.reconciliationEngines[this.reconciliationEngine]();
+        this.templatingEngine = moedco.templatingEngines[this.templatingEngine]();
+    }
+};
 
 moedco.utils = class {
     static wrapScriptTag(contents) {
@@ -44,9 +108,18 @@ moedco.utils = class {
                 render: (typeof render === "undefined") ? _render : render,
                 updated: (typeof updated === "undefined") ? _updated : updated,
                 update: (typeof updated === "undefined") ? _update : update,
-                attrs: (typeof attrs === "undefined") ? _attrs : attrs,
             };
         `;
+    }
+
+    static parseAttrs(attributes) {
+        const obj = {};
+        for (const attr of attributes) {
+            const {name, value} = attr;
+            const camelCased = name.replace(/-([a-z])/g, g => g[1].toUpperCase());
+            obj[camelCased] = value;
+        }
+        return obj;
     }
 
     // Evaluates string as code in function context, with given "this"
@@ -61,28 +134,40 @@ moedco.utils = class {
 
     static rewriteEvents(component) {
         const elements = component.querySelectorAll(moedco.ON_EVENT_SELECTOR);
+        const events = [];
         for (const el of elements) {
             for (const attr of el.attributes) {
                 const {name, value} = attr;
                 if (!moedco.ON_EVENTS.has(name)) {
                     continue;
                 }
+                el.removeAttribute(name);
+                let listener = null;
 
-                const handler = component.script.get(value);
-                if (!handler) {
+                if (value.startsWith('props.')) {
+                    // Attach to parent
+                    const {parentComponent, props} = this;
+                    const handler = props[value.slice(5)];
+                    if (handler) {
+                        listener = ev => handler.call(parentComponent, ev, props.key);
+                    }
+                } else {
+                    const handler = component.script.get(value);
+                    if (handler) {
+                        listener = ev => handler.call(component, ev);
+                    }
+                }
+
+                if (!listener) {
                     // No handler found, log an error
                     console.error(`${component.tagName}: ${value} not defined.`);
                     continue;
                 }
-                el.removeAttribute(name);
-                el.addEventListener(name.substr(2), ev => handler.call(component, ev));
+                el.addEventListener(name.slice(2), listener);
+                events.push([el, name.slice(2), listener]);
             }
         }
-    }
-
-    static vDomUpdate(element, newHTML) {
-        // TODO finish this so we can vDOM if virtual-dom and
-        // html-to-vdom is supported
+        return events;
     }
 };
 
@@ -93,11 +178,11 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
     constructor() {
         super();
         this.mounted = false;
+        this.events = [];
         this._originalHTML = this.innerHTML;
-    }
-
-    wrappedEvent(name, ev) {
-        this.script.get(name).call(this, ev);
+        if (this.options.shadow) {
+            this.shadow = this.attachShadow({mode: 'open'});
+        }
     }
 
     rerender() {
@@ -109,10 +194,9 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
         moedco._stack.pop();
     }
 
-    _processAttr(attr) {
-        let {name, value} = attr;
+    _processAttr(name, value) {
         if (name.startsWith('props.')) {
-            name = name.substr(6); // slice out props.
+            name = name.slice(6); // slice out props.
             value = this.parentComponent.props[value];
         }
 
@@ -120,16 +204,16 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
             if (!this.parentComponent) {
                 throw new Error('No parent components ' + this);
             }
-            name = name.substr(0, name.length - 1); // slice out props.
+            name = name.slice(0, -1); // slice out props.
 
             if (value.startsWith('this.')) {
-                value = this.parentComponent[value.substr(5)];
+                value = this.parentComponent[value.slice(5)];
             } else {
                 value = this.parentComponent.script.get(value);
             }
 
             if (!value) {
-                console.error(`${component.tagName}: ${value} not defined in ${this.parentComponent.tagName}.`);
+                console.error(`${this.tagName}: ${value} not defined in ${this.parentComponent.tagName}.`);
             }
             if (value instanceof Function) {
                 value = value.bind(this.parentComponent);
@@ -138,15 +222,22 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
         if (name === '...props') {
             Object.assign(this.props, this.parentComponent.props);
         }
-        return {name, value};
+        return [name, value];
+    }
+
+    clearEvents() {
+        for (const [el, eventName, func] of this.events) {
+            el.removeEventListener(eventName, func);
+        }
+        this.events = [];
     }
 
     buildProps() {
         this.props = {content: this._originalHTML};
-        for (const attr of this.attributes) {
-            let {name, value} = this._processAttr(attr);
+        const attrs = moedco.utils.parseAttrs(this.attributes);
+        for (const n of Object.keys(attrs)) {
+            const [name, value] = this._processAttr(n, attrs[n]);
             this.props[name] = value;
-            console.log('this is the props', this.props);
         }
 
         // Do prop type checking, if applicable
@@ -159,7 +250,7 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
             }
 
             let val = this.props[key];
-            const err = this.tagName + ' - Type error: ' + key;
+            const err = `${this.tagName}: Type error ${key} received ${val}`;
             if (!type.skipParse) {
                 try { val = JSON.parse(val); }
                 catch(e) { console.error(err); }
@@ -171,16 +262,22 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
     }
 
     connectedCallback() {
-        console.log('<', this.tagName, '>');
+        // console.log('<', this.tagName, '>');
         this.parentComponent = moedco._stack[moedco._stack.length - 1];
         this.buildProps();
         this.rerender();
-        console.log('</', this.tagName, '>');
+        // console.log('</', this.tagName, '>');
         this.mounted = true;
     }
 
-    disconnectedCallback() {
-        // this.script.cleanup();
+    makeAttrString() {
+        return Array.from(this.attributes)
+            .map(({name, value}) => `${name}=${JSON.stringify(value)}`).join(' ');
+    }
+
+    wrapHTML(inner) {
+        const attrs = this.makeAttrString();
+        return `<${this.tagName} ${attrs}>${inner}</${this.tagName}>`
     }
 
     attributeChangedCallback(attrName, oldVal, newVal) {
@@ -207,37 +304,41 @@ moedco.defineComponent = (name, ...args) => {
  - js: Optional "js" attribute that can contain text resembling the
    script tag, to provide custom events and tag lifecycle.
 */
-moedco.createComponent = (name, tmpl, js = '') => {
+moedco.createComponent = (name, tmpl, js = '', extraOptions = {}) => {
     const {rewriteEvents, wrapScriptTag, scopedEval} = moedco.utils;
-
-    // Compile a template if necessary, otherwise use 2nd argument as a
-    // pure functional component
-    const compiledTemplate = tmpl instanceof Function ? tmpl : TinyTiny(tmpl);
 
     // The "script" object represents custom JavaScript in the script
     const script = {};
-
+    let options;
     const componentClass = class extends moedco.MoedcoComponentBase {
-        get script() {
-            return script;
-        }
+        get options() { return options; }
+        get script() { return script; }
         static get observedAttributes() {
-            return script.attrs;
+            const vars = compiledTemplate.ctx_vars || [];
+            return Object.keys(script.types || {}).concat(vars);
         }
     };
 
     const context = {
         _render: props => compiledTemplate(props),
         _update: (component, newContents) => {
-            component.innerHTML = newContents;
+            component.clearEvents();
+            options.reconciliationEngine(component, newContents);
         },
-        _updated: component => rewriteEvents(component),
-        _attrs: Array.from(compiledTemplate.ctx_vars || []),
+        _updated: component => {
+            component.events = rewriteEvents(component);
+        },
         componentClass,
     };
 
     const wrappedJS = wrapScriptTag(js);
     Object.assign(script, scopedEval(script, context, wrappedJS));
+    options = new moedco.Options(extraOptions, script.options);
+
+    // Compile a template if necessary, otherwise use 2nd argument as a pure
+    // functional component
+    const compiledTemplate = tmpl instanceof Function ? tmpl : options.templatingEngine(tmpl);
+
     return componentClass;
 };
 
@@ -245,7 +346,8 @@ moedco.defineAll = () => {
     const templates = document.querySelectorAll('template[name*="-"]');
 
     for (const templateTag of templates) {
-        const name = templateTag.attributes.name.value;
+        const attrs = moedco.utils.parseAttrs(templateTag.attributes);
+        const {name, shadow, templateEngine, reconciliationEngine} = attrs;
         const html = []; // all top level html for template
         const scripts = [];
 
@@ -255,11 +357,16 @@ moedco.defineAll = () => {
                 html.push(child.textContent);
             } else if (child.tagName === 'SCRIPT') { // SCRIPT
                 scripts.push(child.textContent);
+            } else if (child.tagName === 'STYLE') { // STYLE
+                document.head.append(child);
             } else { // STANDARD HTML NODE
                 html.push(child.outerHTML);
             }
         }
-        moedco.defineComponent(name, html.join(''), scripts.join(''));
+
+        //const options = {shadow, templateEngine, reconciliationEngine};
+        const options = {};
+        moedco.defineComponent(name, html.join(''), scripts.join(''), options);
     }
 };
 
