@@ -1,0 +1,16 @@
+{
+  "requires": true,
+  "lockfileVersion": 1,
+  "dependencies": {
+    "morphdom": {
+      "version": "2.3.2",
+      "resolved": "https://registry.npmjs.org/morphdom/-/morphdom-2.3.2.tgz",
+      "integrity": "sha1-anEAH1XlGPBrQuDh8QhP6vjaICQ="
+    },
+    "set-dom": {
+      "version": "7.4.1",
+      "resolved": "https://registry.npmjs.org/set-dom/-/set-dom-7.4.1.tgz",
+      "integrity": "sha1-m7VEEEWRgmXueuE0NE+or8OxfXc="
+    }
+  }
+}

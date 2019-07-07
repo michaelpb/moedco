@@ -3,6 +3,8 @@
 
     <title>Test</title>
     <head>
+
+        <!-- Define a component named todo-item -->
         <template name="todo-item">
             <style>
                 todo-item {
@@ -29,6 +31,7 @@
             </script>
         </template>
 
+        <!-- Define a component named todo-mvc -->
         <template name="todo-mvc">
             {% for pair in list %}
                 <todo-item active="{{ pair.active }}" ontoggle:="toggle" key="{{ pair.id }}">
@@ -64,6 +67,8 @@
     </head>
     <body>
         <h1>todos</h1>
+
+        <!-- Instantiate a todo-mvc with the props -->
         <todo-mvc props.list=TODO></todo-mvc>
 
         <script>
@@ -80,6 +85,7 @@
                 });
             }
         </script>
+
         <script src="./tinytiny/index.js"></script>
         <script src="./moedco.js"></script>
         <script src="./node_modules/set-dom/dist/set-dom.js"></script>
@@ -90,8 +96,11 @@
                 'tinytiny': window.TinyTiny,
                 'morphdom': window.morphdom,
             }[pkg]);
-            moedco.defaultOptions.reconciliationEngine = 'morphdom';
+
+            // Try different reconiciliation engines
+            //moedco.defaultOptions.reconciliationEngine = 'morphdom';
             //moedco.defaultOptions.reconciliationEngine = 'set-dom';
+            moedco.defaultOptions.templatingEngineh = 'TinyTiny';
             moedco.defineAll();
         </script>
     </body>
