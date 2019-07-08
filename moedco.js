@@ -84,7 +84,7 @@ moedco.reconciliationEngines = {
 
 moedco.defaultOptions = {
     reconciliationEngine: 'none',
-    templatingEngine: 'TinyTiny',
+    templatingEngine: 'Backtick',
 };
 
 moedco.Options = class {
@@ -108,6 +108,7 @@ moedco.utils = class {
                 render: (typeof render === "undefined") ? _render : render,
                 updated: (typeof updated === "undefined") ? _updated : updated,
                 update: (typeof updated === "undefined") ? _update : update,
+                initialized: (typeof initialized === "undefined") ? function () {} : initialized,
             };
         `;
     }
@@ -180,14 +181,47 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
         this.mounted = false;
         this.events = [];
         this._originalHTML = this.innerHTML;
+
         if (this.options.shadow) {
             this.shadow = this.attachShadow({mode: 'open'});
+        }
+
+        this.stateNameSpace = 'global';
+        this.stateNameSuffix = null;
+        if (this.options.state) {
+            this.stateNameSuffix = this.options.state;
+        }
+
+        if (this.script.initialized) {
+            this.script.initialized.call(this);
+        }
+    }
+
+    get stateName() {
+        if (!this.stateNameSuffix) {
+            return null;
+        }
+        return this.stateNameSpace + '::' + this.stateNameSuffix;
+    }
+
+    get state() {
+        // TODO: Allow pluggable state engine
+        if (this.stateName) {
+            if (!moedco.globalState[this.stateName]) {
+                moedco.globalState[this.stateName] = {};
+            }
+            return moedco.globalState[this.stateName];
+        } else {
+            throw new Error('No state attached to this component');
         }
     }
 
     rerender() {
         // Rendering stack is controlled here
         moedco._stack.push(this);
+        if (this.stateName) {
+            this.props.state = this.state;
+        }
         const newHTML = this.script.render.call(this, this.props);
         this.script.update.call(this, this, newHTML);
         this.script.updated.call(this, this);
@@ -195,6 +229,13 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
     }
 
     _processAttr(name, value) {
+        if (name === 'namespace') {
+            if (!this.stateName) {
+                throw new Error('Stateless component received namespace');
+            }
+            this.stateNameSpace = value;
+        }
+
         if (name.startsWith('props.')) {
             name = name.slice(6); // slice out props.
             value = this.parentComponent.props[value];
@@ -204,13 +245,9 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
             if (!this.parentComponent) {
                 throw new Error('No parent components ' + this);
             }
-            name = name.slice(0, -1); // slice out props.
+            name = name.slice(0, -1); // slice out colon
 
-            if (value.startsWith('this.')) {
-                value = this.parentComponent[value.slice(5)];
-            } else {
-                value = this.parentComponent.script.get(value);
-            }
+            value = this.parentComponent.script.get(value);
 
             if (!value) {
                 console.error(`${this.tagName}: ${value} not defined in ${this.parentComponent.tagName}.`);
@@ -219,9 +256,13 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
                 value = value.bind(this.parentComponent);
             }
         }
+
+        /*
         if (name === '...props') {
             Object.assign(this.props, this.parentComponent.props);
         }
+        */
+
         return [name, value];
     }
 
@@ -294,6 +335,8 @@ moedco.defineComponent = (name, ...args) => {
     customElements.define(name, componentClass);
 };
 
+moedco.globalState = {};
+
 /*
  Create and return a component class.
  - name: should contain a '-'
@@ -337,6 +380,7 @@ moedco.createComponent = (name, tmpl, js = '', extraOptions = {}) => {
 
     // Compile a template if necessary, otherwise use 2nd argument as a pure
     // functional component
+    //console.log(tmpl);
     const compiledTemplate = tmpl instanceof Function ? tmpl : options.templatingEngine(tmpl);
 
     return componentClass;
@@ -347,7 +391,7 @@ moedco.defineAll = () => {
 
     for (const templateTag of templates) {
         const attrs = moedco.utils.parseAttrs(templateTag.attributes);
-        const {name, shadow, templateEngine, reconciliationEngine} = attrs;
+        const {state, name, shadow, templateEngine, reconciliationEngine} = attrs;
         const html = []; // all top level html for template
         const scripts = [];
 
@@ -364,8 +408,9 @@ moedco.defineAll = () => {
             }
         }
 
+        // Eventually, allow per-component template engine & reconciliation engine opts
         //const options = {shadow, templateEngine, reconciliationEngine};
-        const options = {};
+        const options = {state};
         moedco.defineComponent(name, html.join(''), scripts.join(''), options);
     }
 };
