@@ -146,6 +146,8 @@ moedco.utils = class {
                 let listener = null;
 
                 if (value.startsWith('props.')) {
+                    console.error('props. currently disabled');
+                    throw 'canoe' in 'shit creek';
                     // Attach to parent
                     const {parentComponent, props} = this;
                     const handler = props[value.slice(5)];
@@ -294,7 +296,7 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
             const err = `${this.tagName}: Type error ${key} received ${val}`;
             if (!type.skipParse) {
                 try { val = JSON.parse(val); }
-                catch(e) { console.error(err); }
+                catch(e) { console.error(err, e); }
             }
             if (!type(val)) { console.error(err); }
             this.props[key] = val;
@@ -303,11 +305,11 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
     }
 
     connectedCallback() {
-        // console.log('<', this.tagName, '>');
+        console.log('<', this.tagName, '>');
         this.parentComponent = moedco._stack[moedco._stack.length - 1];
         this.buildProps();
         this.rerender();
-        // console.log('</', this.tagName, '>');
+        console.log('</', this.tagName, '>');
         this.mounted = true;
     }
 
@@ -318,7 +320,7 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
 
     wrapHTML(inner) {
         const attrs = this.makeAttrString();
-        return `<${this.tagName} ${attrs}>${inner}</${this.tagName}>`
+        return `<${this.tagName} ${attrs}>${inner}</${this.tagName}>`;
     }
 
     attributeChangedCallback(attrName, oldVal, newVal) {
@@ -332,6 +334,7 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
 
 moedco.defineComponent = (name, ...args) => {
     const componentClass = moedco.createComponent(name, ...args);
+        console.log('deineieginne', name);
     customElements.define(name, componentClass);
 };
 

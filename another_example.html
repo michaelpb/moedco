@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+    <head>
+
+        <title>Test</title>
+        <style>
+          body {
+            margin: 40px;
+          }
+        </style>
+        <script>
+            // Small hack
+            module = {};
+            module.exports = {};
+        </script>
+        <script src="./moedco.js"></script>
+        <script src="./tinytiny/index.js"></script>
+        <script src="./node_modules/set-dom/dist/set-dom.js"></script>
+        <script src="./node_modules/morphdom/dist/morphdom.js"></script>
+        <script>
+            const require = pkg => ({
+                'set-dom': window.setDOM,
+                'tinytiny': window.TinyTiny,
+                'morphdom': window.morphdom,
+            }[pkg]);
+
+            // Try different reconciliation engines
+            //moedco.defaultOptions.reconciliationEngine = 'morphdom';
+            //moedco.defaultOptions.reconciliationEngine = 'set-dom';
+            moedco.defaultOptions.templatingEngine = 'TinyTiny';
+        </script>
+    </head>
+
+
+        <template name="w-button">
+            <style>
+              w-button > div {
+                color: white;
+                background-color: tomato;
+                font-family: sans-serif;
+                border: 1px solid white;
+                font-size: 24px;
+              }
+            </style>
+            <div>
+              {{ content }}
+            </div>
+            <script>
+            </script>
+        </template>
+
+        <template name="counter-app" state="counter">
+            <div>
+              <h2>{{ state.num }}</h2>
+              <button onclick=increment>Increment ({{ state.num }})</button>
+              <w-button>Button replacer {{ state.num }}</w-button>
+            </div>
+            <script>
+                function initialized() {
+                    this.state.num = 0;
+                }
+
+                function increment() {
+                    this.state.num++;
+                    this.rerender();
+                }
+            </script>
+        </template>
+
+        <script>moedco.defineAll()</script>
+    <body>
+        <h1>todos</h1>
+
+        <counter-app>This should not appear</counter-app>
+
+        <w-button>w-Button 2</w-button>
+    </body>
+</html>

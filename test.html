@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+    <head>
+        <style> body { margin: 40px; } </style>
+        <script>module = {exports: {}}</script>
+        <script src="./moedco.js"></script>
+        <script src="./tinytiny/index.js"></script>
+        <script src="./node_modules/set-dom/dist/set-dom.js"></script>
+        <script src="./node_modules/morphdom/dist/morphdom.js"></script>
+        <script>
+            const require = pkg => ({
+                'set-dom': window.setDOM,
+                'tinytiny': window.TinyTiny,
+                'morphdom': window.morphdom,
+            }[pkg]);
+            moedco.defaultOptions.templatingEngine = 'TinyTiny';
+        </script>
+        <style>
+          span {display: inline; font-size: 100px;}
+        </style>
+
+        <template name="x-a">
+          <span>A(<x-b></x-b>, <x-b></x-b>)</span>
+        </template>
+        <template name="x-b"><span>B(<x-c></x-c>, <x-c></x-c>)</span></template>
+        <template name="x-c"><span>C(<x-d></x-d>, <x-d></x-d>)</span></template>
+        <template name="x-d"><span>D</span></template>
+
+        <script>moedco.defineAll()</script>
+
+    </head>
+    <body>
+
+      <x-a></x-a>
+
+    </body>
+</html>
