@@ -206,40 +206,18 @@ moedco.utils = class {
             moedco.lastFocus = null;
         }
     }
-};
 
-moedco._stack = [window];
-
-// The Web Component interface
-moedco.MoedcoComponentBase = class extends HTMLElement {
-    constructor() {
-        super();
-        this.isMounted = false;
-        this.events = [];
-        this._originalHTML = this.innerHTML;
-
-        if (this.options.shadow) {
-            this.shadow = this.attachShadow({mode: 'open'});
-        }
-
-        this.stateNameSpace = 'global';
-        this.stateNameSuffix = null;
-        if (this.options.state) {
-            this.stateNameSuffix = this.options.state;
-        }
-    }
-
-    get stateIndexInParent() {
-        if (!this.parentNode) {
+    static stateIndexInParent(elem) {
+        if (!elem.parentNode) {
             // Unmounted
             return -1;
         }
         let i = 0;
-        for (const previousSib of this.parentNode.children) {
+        for (const previousSib of elem.parentNode.children) {
             if (previousSib === this) {
                 return i;
             }
-            if (previousSib.stateNameSuffix) {
+            if (previousSib.key) {
                 i++;
             }
         }
@@ -264,6 +242,29 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
             node = node.parentComponent;
         }
         return keys.join('~');
+    }
+
+};
+
+moedco._stack = [window];
+
+// The Web Component interface
+moedco.MoedcoComponentBase = class extends HTMLElement {
+    constructor() {
+        super();
+        this.isMounted = false;
+        this.events = [];
+        this._originalHTML = this.innerHTML;
+
+        if (this.options.shadow) {
+            this.shadow = this.attachShadow({mode: 'open'});
+        }
+
+        this.stateNameSpace = 'global';
+        this.stateNameSuffix = null;
+        if (this.options.state) {
+            this.stateNameSuffix = this.options.state;
+        }
     }
 
     get stateName() {
@@ -306,8 +307,6 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
             this.props.state = this.state;
         }
         const newHTML = this.script.render.call(this, this.props);
-        // TODO: Add to all key="..." with abskey="..." (absolute key for that
-        // component or DOM element)
         this.script.update.call(this, this, newHTML);
         this.script.updated.call(this, this);
         moedco._stack.pop();
@@ -353,6 +352,10 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
             }
         }
 
+        if (name === 'key') {
+            // Change key to be absolute
+            value = moedco.utils.getAbsoluteKey(this, value);
+        }
         /*
         if (name === '...props') {
             Object.assign(this.props, this.parentComponent.props);
