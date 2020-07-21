@@ -38,7 +38,7 @@
             {% endfor %}
 
             <input name="add-item"
-                value={{state.currentText}}
+                value="{{state.currentText}}"
                 onkeyup=currentItemChanged
                 placeholder="type in new item" />
             <button onclick=addItem>Add</button>
@@ -56,6 +56,7 @@
 
                 function currentItemChanged(ev) {
                     this.state.currentText = ev.target.value;
+                    this.rerender();
                 }
 
                 function addItem() {

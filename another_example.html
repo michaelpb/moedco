@@ -28,6 +28,7 @@
             //moedco.defaultOptions.reconciliationEngine = 'morphdom';
             //moedco.defaultOptions.reconciliationEngine = 'set-dom';
             moedco.defaultOptions.templatingEngine = 'TinyTiny';
+            //moedco.DEBUG = true;
         </script>
     </head>
 
@@ -49,7 +50,9 @@
             </script>
         </template>
 
-        <template name="counter-app" state="counter">
+        <!-- How to make it private: include "$" which is a unique identifier -->
+        <!--<template name="counter-app" state="$counter">-->
+        <template name="counter-app" state="$counter">
             <div>
               <h2>{{ state.num }}</h2>
               <button onclick=increment>Increment ({{ state.num }})</button>
@@ -67,12 +70,57 @@
             </script>
         </template>
 
+        <!--
+        NOTE: If you define early, weird stuff happens: It will only pick up on
+        counter-app, and the text content of counter-app is still visible. Must
+        define after body, like normal.
         <script>moedco.defineAll()</script>
+        -->
     <body>
         <h1>todos</h1>
 
         <counter-app>This should not appear</counter-app>
-
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
+        <counter-app>This should not appear</counter-app>
         <w-button>w-Button 2</w-button>
+
+        <script>moedco.defineAll()</script>
     </body>
 </html>

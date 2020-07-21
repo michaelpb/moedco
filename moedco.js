@@ -19,6 +19,7 @@ moedco.types = {
 };
 moedco.types.string.skipParse = true;
 moedco.types.func.skipParse = true;
+moedco.statefulComponentsRegistry = {};
 
 moedco.ON_EVENTS = new Set([
     'onclick', 'ondblclick', 'onmousedown', 'onmouseup', 'onmouseover',
@@ -54,7 +55,7 @@ moedco.reconciliationEngines = {
         const setDOM = require("set-dom");
         setDOM.KEY = 'key';
         return (component, html) => {
-            if (!component.mounted) {
+            if (!component.isMounted) {
                 component.innerHTML = html;
             } else {
                 setDOM(component, component.wrapHTML(html));
@@ -73,7 +74,7 @@ moedco.reconciliationEngines = {
             childrenOnly: true,
         };
         return (component, html) => {
-            if (!component.mounted) {
+            if (!component.isMounted) {
                 component.innerHTML = html;
             } else {
                 morphdom(component, `<div>${html}</div>`, opts);
@@ -126,6 +127,7 @@ moedco.utils = class {
     // Evaluates string as code in function context, with given "this"
     // and any number of named args
     static scopedEval(thisContext, namedArgs, code) {
+        // TODO: use entries -v
         const argPairs = Object.keys(namedArgs).map(key => [key, namedArgs[key]]);
         const argNames = argPairs.map(pair => pair[0]);
         const argValues = argPairs.map(pair => pair[1]);
@@ -172,6 +174,38 @@ moedco.utils = class {
         }
         return events;
     }
+
+    static registerStatefulComponent(component) {
+        // TODO: Need to detect when components are unmounted, never to be
+        // isMounted again, so they can be de-registered
+        const registry = moedco.statefulComponentsRegistry;
+        if (!(component.stateName in registry)) {
+            registry[component.stateName] = [];
+        }
+        if (!registry[component.stateName].includes(component)) {
+            registry[component.stateName].push(component);
+        }
+    }
+
+    static rerenderStateSiblings(component) {
+        // Rerender all siblings to component
+        const registry = moedco.statefulComponentsRegistry;
+        for (const comp of registry[component.stateName]) {
+            if (comp === component) {
+                continue;
+            }
+            comp.rerender(true);
+        }
+    }
+
+    static registerLastFocus() {
+        // TODO: Finish
+        if (document.activeElement && document.activeElement.key) {
+            moedco.lastFocus = document.activeElement.key;
+        } else {
+            moedco.lastFocus = null;
+        }
+    }
 };
 
 moedco._stack = [window];
@@ -180,7 +214,7 @@ moedco._stack = [window];
 moedco.MoedcoComponentBase = class extends HTMLElement {
     constructor() {
         super();
-        this.mounted = false;
+        this.isMounted = false;
         this.events = [];
         this._originalHTML = this.innerHTML;
 
@@ -193,21 +227,55 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
         if (this.options.state) {
             this.stateNameSuffix = this.options.state;
         }
+    }
 
-        if (this.script.initialized) {
-            this.script.initialized.call(this);
+    get stateIndexInParent() {
+        if (!this.parentNode) {
+            // Unmounted
+            return -1;
         }
+        let i = 0;
+        for (const previousSib of this.parentNode.children) {
+            if (previousSib === this) {
+                return i;
+            }
+            if (previousSib.stateNameSuffix) {
+                i++;
+            }
+        }
+        return -2;
+    }
+
+    get key() {
+        if (this.props && this.props.key) {
+            return this.props.key;
+        } else {
+            // "auto-generated key" based on index
+            return `ak${this.stateIndexInParent}`;
+        }
+    }
+
+    get globalKey() {
+        // Walk up the tree (NOTE: Should memoize these getters)
+        let node = this;
+        let keys = [];
+        while (node && node !== window) {
+            keys.push(node.key);
+            node = node.parentComponent;
+        }
+        return keys.join('~');
     }
 
     get stateName() {
         if (!this.stateNameSuffix) {
             return null;
         }
-        return this.stateNameSpace + '::' + this.stateNameSuffix;
+        const suff = this.stateNameSuffix.replace('$', this.globalKey + '$'); // maybe not $$?
+        return this.stateNameSpace + '::' + suff;
     }
 
     get state() {
-        // TODO: Allow pluggable state engine
+        // TODO: Allow pluggable state engine, silo'able state
         if (this.stateName) {
             if (!moedco.globalState[this.stateName]) {
                 moedco.globalState[this.stateName] = {};
@@ -218,16 +286,37 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
         }
     }
 
-    rerender() {
+    _callInitializedOnce() {
+        if (this._initializedHasBeenCalled) {
+            return;
+        }
+        this._initializedHasBeenCalled = true;
+        if (this.script.initialized) {
+            this.script.initialized.call(this);
+        }
+    }
+
+    rerender(skipStateSiblings = false) {
         // Rendering stack is controlled here
+        //moedco.utils.registerLastFocus();
+
         moedco._stack.push(this);
+        this._callInitializedOnce();
         if (this.stateName) {
             this.props.state = this.state;
         }
         const newHTML = this.script.render.call(this, this.props);
+        // TODO: Add to all key="..." with abskey="..." (absolute key for that
+        // component or DOM element)
         this.script.update.call(this, this, newHTML);
         this.script.updated.call(this, this);
         moedco._stack.pop();
+
+        // Now, as a side-effect, re-render all sibling state-components
+        if (!skipStateSiblings && this.stateName) {
+          moedco.utils.rerenderStateSiblings(this);
+        }
+        //moedco.utils.restoreLastFocus();
     }
 
     _processAttr(name, value) {
@@ -238,6 +327,7 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
             this.stateNameSpace = value;
         }
 
+        // TODO: Delete this, illogical
         if (name.startsWith('props.')) {
             name = name.slice(6); // slice out props.
             value = this.parentComponent.props[value];
@@ -254,6 +344,10 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
             if (!value) {
                 console.error(`${this.tagName}: ${value} not defined in ${this.parentComponent.tagName}.`);
             }
+            // IDEA: Don't allow anon functions with arguments as properties.
+            // Instead, create "args:" attributes or something similar. This is
+            // superior since they are visible from inspection, and follow
+            // principle of "no hidden info"
             if (value instanceof Function) {
                 value = value.bind(this.parentComponent);
             }
@@ -305,12 +399,13 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
     }
 
     connectedCallback() {
-        console.log('<', this.tagName, '>');
+        if (moedco.DEBUG) { console.log('<', this.tagName, '>', this); }
         this.parentComponent = moedco._stack[moedco._stack.length - 1];
         this.buildProps();
-        this.rerender();
-        console.log('</', this.tagName, '>');
-        this.mounted = true;
+        moedco.utils.registerStatefulComponent(this);
+        this.rerender(true);
+        if (moedco.DEBUG) { console.log('</', this.tagName, '>'); }
+        this.isMounted = true;
     }
 
     makeAttrString() {
@@ -324,11 +419,11 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
     }
 
     attributeChangedCallback(attrName, oldVal, newVal) {
-        if (!this.mounted) {
+        if (!this.isMounted) {
             return;
         }
         this.buildProps();
-        this.rerender();
+        this.rerender(true);
     }
 }
 
