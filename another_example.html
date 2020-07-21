@@ -27,6 +27,7 @@
             // Try different reconciliation engines
             //moedco.defaultOptions.reconciliationEngine = 'morphdom';
             //moedco.defaultOptions.reconciliationEngine = 'set-dom';
+            //moedco.defaultOptions.reconciliationEngine = 'morphdom';
             moedco.defaultOptions.templatingEngine = 'TinyTiny';
             //moedco.DEBUG = true;
         </script>
@@ -50,9 +51,10 @@
             </script>
         </template>
 
-        <!-- How to make it private: include "$" which is a unique identifier -->
+        <!-- How to make it private: include "{key}" which is a unique
+        identifier -->
         <!--<template name="counter-app" state="$counter">-->
-        <template name="counter-app" state="$counter">
+        <template name="counter-app" state="{key}-counter">
             <div>
               <h2>{{ state.num }}</h2>
               <button onclick=increment>Increment ({{ state.num }})</button>

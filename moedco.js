@@ -178,6 +178,9 @@ moedco.utils = class {
     static registerStatefulComponent(component) {
         // TODO: Need to detect when components are unmounted, never to be
         // isMounted again, so they can be de-registered
+        if (!component.stateName) {
+            return; // not stateful
+        }
         const registry = moedco.statefulComponentsRegistry;
         if (!(component.stateName in registry)) {
             registry[component.stateName] = [];
@@ -208,45 +211,79 @@ moedco.utils = class {
     }
 
     static stateIndexInParent(elem) {
-        if (!elem.parentNode) {
+        // TODO: Dead code, probably should delete
+        if (!elem.parentComponent) {
             // Unmounted
             return -1;
         }
+        moedco._stack[moedco._stack.length - 1]
         let i = 0;
-        for (const previousSib of elem.parentNode.children) {
-            if (previousSib === this) {
-                return i;
+        const pC = elem.parentComponent === document ? document : elem.parentComponent;
+        for (const previousSib of pC.children) {
+            if (previousSib === elem) {
+                return i; // got to self
             }
-            if (previousSib.key) {
+            // Now see if they have key
+            if (previousSib.hasAttribute('key')) {
                 i++;
             }
         }
         return -2;
     }
 
-    get key() {
-        if (this.props && this.props.key) {
-            return this.props.key;
-        } else {
-            // "auto-generated key" based on index
-            return `ak${this.stateIndexInParent}`;
+    static getStackDepth(elem) {
+        let depth = 0;
+        let node = elem;
+        console.log('this is depth', depth);
+        while (node) {
+            if (node._stackDepth) {
+                // NOTE: Not sure if this is faster or correct
+                return node._stackDepth + depth;
+            }
+            node = node.parentNode;
+            if (node && node.hasAttribute && node.hasAttribute('abskey')) {
+                depth++;
+            }
         }
+        elem._stackDepth = depth;
+        console.log('this is depth', depth);
+        return depth;
     }
 
-    get globalKey() {
-        // Walk up the tree (NOTE: Should memoize these getters)
-        let node = this;
-        let keys = [];
-        while (node && node !== window) {
-            keys.push(node.key);
-            node = node.parentComponent;
+    static resetStackDepth(elem) {
+        // maybe not working, but needs to be called somweher,e not sure where
+        const depth = moedco.utils.getStackDepth(elem);
+        moedco._stackCount[depth + 1] = 0;
+    }
+
+    static getNextKey(elem) {
+        //if (!window.doneit) { console.log(elem); window.doneit =true; }
+
+        // "auto-generated key" based on index
+        const depth = moedco.utils.getStackDepth(elem);
+        if (!(depth in moedco._stackCount)) {
+            moedco._stackCount[depth] = 0;
         }
-        return keys.join('~');
+        moedco._stackCount[depth]++;
+        return `ak${moedco._stackCount[depth]}`;
+    }
+
+    static getAbsoluteKey(elem, localKey) {
+        // Walk up the tree (NOTE: Should memoize these getters)
+        if (elem.parentComponent) {
+            //console.log(elem.parentComponent);
+            const pK = elem.parentComponent.getAttribute('abskey');
+            console.log('this is pk', pK);
+            return `${pK}.${localKey}`;
+        } else {
+            return localKey;
+        }
     }
 
 };
 
-moedco._stack = [window];
+moedco._stack = [document.body];
+moedco._stackCount = {};
 
 // The Web Component interface
 moedco.MoedcoComponentBase = class extends HTMLElement {
@@ -271,7 +308,7 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
         if (!this.stateNameSuffix) {
             return null;
         }
-        const suff = this.stateNameSuffix.replace('$', this.globalKey + '$'); // maybe not $$?
+        const suff = this.stateNameSuffix.replace('{key}', this.props.key);
         return this.stateNameSpace + '::' + suff;
     }
 
@@ -299,9 +336,11 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
 
     rerender(skipStateSiblings = false) {
         // Rendering stack is controlled here
-        //moedco.utils.registerLastFocus();
 
         moedco._stack.push(this);
+        //moedco.utils.registerLastFocus();
+        moedco.utils.resetStackDepth(this);
+
         this._callInitializedOnce();
         if (this.stateName) {
             this.props.state = this.state;
@@ -351,11 +390,6 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
                 value = value.bind(this.parentComponent);
             }
         }
-
-        if (name === 'key') {
-            // Change key to be absolute
-            value = moedco.utils.getAbsoluteKey(this, value);
-        }
         /*
         if (name === '...props') {
             Object.assign(this.props, this.parentComponent.props);
@@ -378,6 +412,7 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
         for (const n of Object.keys(attrs)) {
             const [name, value] = this._processAttr(n, attrs[n]);
             this.props[name] = value;
+            this.setAttribute(name, value);
         }
 
         // Do prop type checking, if applicable
@@ -401,11 +436,21 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
         //this.props = Object.freeze(this.props);
     }
 
+    determineKey() {
+        if (!this.props.key) {
+            // No key was generated
+            this.props.key = moedco.utils.getNextKey(this)
+        }
+        this.props.abskey = moedco.utils.getAbsoluteKey(this, this.props.key);
+        this.setAttribute('abskey', this.props.abskey);
+    }
+
     connectedCallback() {
         if (moedco.DEBUG) { console.log('<', this.tagName, '>', this); }
         this.parentComponent = moedco._stack[moedco._stack.length - 1];
         this.buildProps();
         moedco.utils.registerStatefulComponent(this);
+        this.determineKey();
         this.rerender(true);
         if (moedco.DEBUG) { console.log('</', this.tagName, '>'); }
         this.isMounted = true;
