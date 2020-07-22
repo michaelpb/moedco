@@ -308,6 +308,7 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
         if (!this.stateNameSuffix) {
             return null;
         }
+        // TODO: Make default suffix {key} for "privateStateful"
         const suff = this.stateNameSuffix.replace('{key}', this.props.key);
         return this.stateNameSpace + '::' + suff;
     }
@@ -366,10 +367,10 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
         }
 
         // TODO: Delete this, illogical
-        if (name.startsWith('props.')) {
-            name = name.slice(6); // slice out props.
-            value = this.parentComponent.props[value];
-        }
+        //if (name.startsWith('props.')) {
+        //    name = name.slice(6); // slice out props.
+        //    value = this.parentComponent.props[value];
+        //}
 
         if (name.endsWith(':')) {
             if (!this.parentComponent) {

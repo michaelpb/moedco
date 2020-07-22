@@ -37,11 +37,14 @@
                 </todo-item>
             {% endfor %}
 
-            <input name="add-item"
+            <input
+                name="add-item"
+                key="input"
                 value="{{state.currentText}}"
                 onkeyup=currentItemChanged
-                placeholder="type in new item" />
-            <button onclick=addItem>Add</button>
+                placeholder="type in new item"
+            />
+            <button onclick=addItem>Add {{ state.currentText }}</button>
 
             <script>
                 function initialized() {
@@ -56,7 +59,9 @@
 
                 function currentItemChanged(ev) {
                     this.state.currentText = ev.target.value;
+                    this.saveFocus();
                     this.rerender();
+                    this.restoreFocus();
                 }
 
                 function addItem() {
