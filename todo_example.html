@@ -3,20 +3,21 @@
     <head>
 
         <title>Test</title>
-        <link rel="stylesheet" href="https://unpkg.com/sakura.css/css/sakura.css" type="text/css">
+        <!--<link rel="stylesheet" href="https://unpkg.com/sakura.css/css/sakura.css" type="text/css">-->
 
         <!-- Define a component named todo-item -->
         <template name="todo-item">
             <style>
-                todo-item {
-                    display: block;
-                    font-size: 2.4em;
+                todo-item div {
+                    font-size: 2.0em;
+                    margin-bottom: 5px;
+                    border-bottom: 2px dotted tomato;
                 }
             </style>
-            <button onclick=toggle>
+            <div onclick=toggle>
                 {% if not active %}✓{% endif %}
                 {{ content }}
-            </button>
+            </div>
             <script>
                 this.types = {
                     active: moedco.types.bool,
@@ -38,8 +39,6 @@
             {% endfor %}
 
             <input
-                name="add-item"
-                key="input"
                 value="{{state.currentText}}"
                 onkeyup=currentItemChanged
                 placeholder="type in new item"
@@ -59,9 +58,10 @@
 
                 function currentItemChanged(ev) {
                     this.state.currentText = ev.target.value;
-                    this.saveFocus();
                     this.rerender();
-                    this.restoreFocus();
+                    // Restore focus
+                    this.querySelector('input').focus();
+                    this.querySelector('input').setSelectionRange(this.state.currentText.length, this.state.currentText.length);
                 }
 
                 function addItem() {
@@ -78,10 +78,19 @@
     </head>
 
     <body>
-        <h1>todos</h1>
 
         <!-- Instantiate a todo-mvc -->
-        <todo-mvc></todo-mvc>
+        <section>
+            <h1>To-Do List</h1>
+            <todo-mvc></todo-mvc>
+        </section>
+
+        <!--
+        <section>
+            <h1>To-Do List 2</h1>
+            <todo-mvc></todo-mvc>
+        </section>
+        -->
 
         <script>
             // Small hack

@@ -201,36 +201,6 @@ moedco.utils = class {
         }
     }
 
-    static registerLastFocus() {
-        // TODO: Finish
-        if (document.activeElement && document.activeElement.key) {
-            moedco.lastFocus = document.activeElement.key;
-        } else {
-            moedco.lastFocus = null;
-        }
-    }
-
-    static stateIndexInParent(elem) {
-        // TODO: Dead code, probably should delete
-        if (!elem.parentComponent) {
-            // Unmounted
-            return -1;
-        }
-        moedco._stack[moedco._stack.length - 1]
-        let i = 0;
-        const pC = elem.parentComponent === document ? document : elem.parentComponent;
-        for (const previousSib of pC.children) {
-            if (previousSib === elem) {
-                return i; // got to self
-            }
-            // Now see if they have key
-            if (previousSib.hasAttribute('key')) {
-                i++;
-            }
-        }
-        return -2;
-    }
-
     static getStackDepth(elem) {
         let depth = 0;
         let node = elem;
@@ -365,12 +335,6 @@ moedco.MoedcoComponentBase = class extends HTMLElement {
             }
             this.stateNameSpace = value;
         }
-
-        // TODO: Delete this, illogical
-        //if (name.startsWith('props.')) {
-        //    name = name.slice(6); // slice out props.
-        //    value = this.parentComponent.props[value];
-        //}
 
         if (name.endsWith(':')) {
             if (!this.parentComponent) {
