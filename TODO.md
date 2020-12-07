@@ -4,14 +4,20 @@ Principles:
 
 1. DRY
 2. There's only one way to do it
-3. DOM Rules All: No hidden information, components are "spicier" DOM elems
+3. DRA - DOM Rules All: No hidden info, components are "spicier" DOM elems
 4. No invented syntax
 5. Deterministic template rendering
 6. Template language is weak, JavaScript is strong
 7. Silo'ed components
+8. Namespaced components and state
+
+---------------------
+
+## Thoughts on DREAM - DOM Rules Everything Around Me
 
 No hidden info: How can I make it so that EVERYTHING is visible on the DOM? NO
-hidden information outside of whats attached as attributes. E.g.
+hidden information outside of whats attached as attributes. No args or info
+hidden in functions making it harder to debug.  E.g.
 
     <div onclick="getPosts" args_username="{{ username }}">
       Get posts!
@@ -28,7 +34,7 @@ hidden information outside of whats attached as attributes. E.g.
     <div onclick="getPosts" {% args username %}></div>
 
     OR, further:
-    <div {% attach "onclick" username %}></div>
+    <div {% attach onClick getPosts(username) %}></div>
 
 Silo'ed components: How can I ensure the "customizability" is sole'd in each
 component? E.g. if a component brings in its own state machine, that's okay.
@@ -40,6 +46,7 @@ Explicit uses: uses="a-b-c" namespace-comp-name --- first dash can be omitted?
 - $ -> means silo'ed to this particular component
   - e.g. $ { }  (CSS just for this component)
   - state="$" - private state for this component based on key-tree
+
 
 # TODO
 
@@ -83,5 +90,14 @@ Explicit uses: uses="a-b-c" namespace-comp-name --- first dash can be omitted?
 
 
 
+### Namespace notes
 
+Namespaces
+
+<ns-whatever></ns-whatever>
+
+
+"local" special namespace for current file, gets rewritten as
+the namespace that is used when mounting
+<local-whatever></local-whatever>
 
