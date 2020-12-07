@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Test</title>
+        <style> body { margin: 40px; }</style>
+        <script>module = {exports: {}};</script>
+        <script src="./moedco.js"></script>
+        <script src="./tinytiny/index.js"></script>
+        <script src="./node_modules/set-dom/dist/set-dom.js"></script>
+        <script src="./node_modules/morphdom/dist/morphdom.js"></script>
+        <script>
+            const require = pkg => ({ 'set-dom': setDOM,
+                'tinytiny': TinyTiny, 'morphdom': morphdom, }[pkg]);
+            moedco.defaultOptions.templatingEngine = 'TinyTiny';
+        </script>
+    </head>
+
+    <template namespace="lib" src="./component_library.html"></template>
+
+    <body>
+        <h1>todos</h1>
+
+        <lib-Button></lib-Button>
+
+
+
+        <script>moedco.defineAll()</script>
+    </body>
+</html>
