@@ -124,10 +124,11 @@ const middleware = {
 
 function parseAttrs(elem, processColons) {
     const obj = {};
-    for (let {name, value} of Array.from(elem.attributes)) {
+    for (let name of elem.getAttributeNames()) {
+        let value = elem.getAttribute(name);
         name = name.replace(/-([a-z])/g, g => g[1].toUpperCase());
         if (processColons && name.endsWith(':')) {
-            // TODO: Refactor this with buildProps & _processAttr
+            // TODO: Refactor this with buildProps & resolveAttr etc
             name = name.slice(0, -1); // slice out colon
             value = JSON.parse(value);
         }
@@ -332,12 +333,12 @@ class ComponentFactory {
         // The "script" object represents custom JavaScript in the script
         const script = {};
         const factory = this;
-        const propsInfo = this.getSelected('props');
         const componentClass = class extends ModulusComponent {
             get script() { return script; }
             get factory() { return factory; }
             static get observedAttributes() {
                 // TODO fix, almost correct
+                //const propsInfo = this.getSelected('props');
                 //return Array.from(Object.keys(propsInfo.options));
                 return [];
             }
@@ -396,7 +397,7 @@ class ModulusComponent extends HTMLElement {
     constructor() {
         super();
         this.isMounted = false;
-        this._originalHTML = this.innerHTML;
+        this.originalHTML = this.innerHTML;
     }
 
     saveUtilityComponents() {
@@ -448,49 +449,51 @@ class ModulusComponent extends HTMLElement {
             this.props = null;
             return;
         }
-        this.props = {content: this._originalHTML};
-        console.log('this is propsInfo', this.props);
-        for (let name of Object.keys(propsInfo.options)) {
-            let value = this.getAttribute(name);
-            if (name.endsWith(':')) {
-                // TODO: If we have DOCUMENT tier props, then resolve at window instead
-                value = this.parentComponent.resolveValue(value);
-                name = name.slice(0, -1); // trim ':'
-            }
+        this.props = {};
+        for (const propName of Object.keys(propsInfo.options)) {
             // if (this.settings.enforceProps) { } // TODO: add enforcement here
-            this.props[name] = value;
+            let attrName = this.resolveAttributeName(propName);
+            if (!attrName) {
+                console.error('Prop', propName, 'is required for', this.tagName);
+                continue;
+            }
+            let value = this.getAttribute(attrName);
+            if (attrName.endsWith(':')) {
+                // TODO: If we have DOCUMENT tier props, then resolve at window
+                // instead
+                attrName = attrName.slice(0, -1); // trim ':'
+                value = this.parentComponent.resolveValue(value);
+            }
+            this.props[propName] = value;
         }
+        console.log('this is props', this.props);
     }
 
-    rewriteAttributes(elem, parentElem=null) {
-        // DEAD CODE
-        const newValues = {};
-        for (const [name, value] of Object.entries(parseAttrs(elem))) {
-            const [newName, newValue] = this._processAttr(name, value, parentElem);
-            if (modulus.ON_EVENTS.has(newName)) {
-                elem[newName] = (...args) => {
-                }
-            } else {
-                elem.setAttribute(newName, newValue);
-            }
-            newValues[newName] = newValue;
+    resolveAttributeName(name) {
+        if (this.hasAttribute(name)) {
+            return name;
+        } else if (this.hasAttribute(name + ':')) {
+            return name + ':';
         }
-        return newValues;
+        return null;
     }
 
     rewriteEvents() {
         const elements = this.querySelectorAll(modulus.ON_EVENT_SELECTOR);
         this.clearEvents(); // just in case
         for (const el of elements) {
-            for (const {name, value} of el.attributes) {
+            for (const name of el.getAttributeNames()) {
+                const value = el.getAttribute(name);
                 const eventName = name.slice(0, -1);
                 if (!modulus.ON_EVENTS.has(eventName)) {
                     continue;
                 }
                 assert(name.endsWith(':'), 'Events must be resolved attributes');
                 const listener = (...args) => {
+                    // Not sure why this doesn't work:
                     //const currentValue = this.getAttribute(name);
                     //const func = this.resolveValue(currentValue);
+                    console.log('this is value', value, this);
                     const func = this.resolveValue(value);
                     assert(func, `Bad ${name} ${value} is ${func}`);
                     func.apply(this, args);
@@ -506,25 +509,6 @@ class ModulusComponent extends HTMLElement {
             el.removeEventListener(eventName, func);
         }
         this.events = [];
-    }
-
-    rewriteChildrenAttributes(node) {
-        // DEAD CODE
-        this.rewriteAttributes(node, this);
-        node._isRewritten = true;
-        // Now, descend down tree (non Modulus components only)
-        for (const elem of node.children) {
-            if (elem._isRewritten) {
-                continue;
-            }
-            this.rewriteChildrenAttributes(elem);
-        }
-    }
-
-    resolveAttr(key) {
-        const oldValue = this.getAttribute(key);
-        const [newName, value] = this._processAttr(key, oldValue, this);
-        return value;
     }
 
     createUtilityComponents() {
@@ -603,3 +587,25 @@ customElements.define('mod-state', ModulusState);
 class ModulusProps extends HTMLElement {}
 customElements.define('mod-props', ModulusProps);
 
+
+/*
+Rules
+1. NEVER modify the DOM. It should be left as-is so the dev tools is more useful
+2. Parent ALWAYS rewrites
+3. Rewrite on he fly
+
+Situations:
+  1. Modulus component
+    - Rewrite, set each as observable (OR use mutation observer hack, only used
+                                       when debug mode is on)
+  2. Child component
+    - DO NOT rewrite, instead provide "getAttr" interface, that rewrites on the fly
+
+Data situationss:
+
+  1. Serializable value
+    - Rewrite as serialized value like we do for mod-state, that feels right
+    - OR MAYBE NOT, see (1) above
+  2. Non-serializable value (?)
+    - Don't rewrite, attach to dom
+*/
