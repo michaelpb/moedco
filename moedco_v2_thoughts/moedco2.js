@@ -23,6 +23,10 @@
       load times. This would result in a possibly more optimized load time for
       larger builds, since it would serve pre-compiled templates (that are then
       optimized by babel etc)
+
+    - Generalized idea for script tags:
+      - More script tags = like inheritance or mix-ins
+      - Each lifecycle method can be accessed with superScript.get('render')
 */
 
 
@@ -39,18 +43,33 @@
       anywhere in the components themselves
 */
 'use strict';
-const moedco = {};
-moedco.DEBUG = true;
+const modulus = {};
+modulus.DEBUG = true;
+modulus._stack = [document.body];
 
 const adapters = {
     templating: {
-        Backtick: () => str => ctx => {
-            const code = JSON.stringify(str).replace(/`/, "\`").slice(1, -1);
-            return moedco.utils.scopedEval({}, ctx, `return ${code};`);
+        Backtick: () => str => {
+            const html = JSON.stringify(str).replace(/`/, "\`").slice(1, -1);
+            const code = `return \`${html.trim()}\`;`
+            return context => scopedEval(null, (context || {}), code);
         },
-        TinyTiny: () => {
-            const TinyTiny = require("tinytiny");
-            return TinyTiny;
+        TinyTiny: () => require('tinytiny'),
+    },
+    reconciliation: {
+        none: () => (component, html) => {
+            component.innerHTML = html;
+        },
+        'set-dom': () => {
+            const setDOM = require('set-dom');
+            setDOM.KEY = 'key';
+            return (component, html) => {
+                if (!component.isMounted) {
+                    component.innerHTML = html;
+                } else {
+                    setDOM(component, component.wrapHTML(html));
+                }
+            };
         },
     },
 };
@@ -62,44 +81,51 @@ const middleware = {
         };
     },
     compileTemplate({content}, opts) {
-        // TODO: Somehow make this work, content is a string but we probably
-        // want to change these to accept and return an object that is
-        // accumulated e.g. the {content, options} object
-        const templateCompiler = adapters.templating[opts.templatingEngine];
-        return {
-            content,
-            compiledTemplate: templateCompiler(content),
-        };
+        const templateCompiler = adapters.templating[opts.templatingEngine]();
+        const compiledTemplate = templateCompiler(content, opts);
+        return {content, compiledTemplate};
+    },
+    selectReconciliationEngine(metaInfo, opts) {
+        const reconcile = adapters.reconciliation[opts.reconciliationEngine || 'none'];
+        return {...metaInfo, reconcile};
     },
 };
 
 function parseAttrs(elem) {
     const obj = {};
-    for (const {name, value} of elem.attributes) {
+    console.log('thsi is elem', elem);
+    for (const {name, value} of Array.from(elem.attributes)) {
         const camelCased = name.replace(/-([a-z])/g, g => g[1].toUpperCase());
         obj[camelCased] = value;
     }
-    console.log('result:', obj);
     return obj;
 }
 
 function assert(value, ...messages) {
     if (!value) {
         const message = Array.from(messages).join(' - ');
-        throw new Error(`Moedco Configuration Error: "${message}"`)
+        throw new Error(`Modulus Configuration Error: "${message}"`)
     }
+}
+
+function scopedEval(thisContext, namedArgs, code) {
+    const argPairs = Array.from(Object.entries(namedArgs));
+    const argNames = argPairs.map(pair => pair[0]);
+    const argValues = argPairs.map(pair => pair[1]);
+    const func = new Function(...argNames, code);
+    return func.apply(thisContext, argValues);
 }
 
 const defaultLoaderOptions = {
     middleware: {
-        template: [],
+        template: [middleware.compileTemplate],
         style: [middleware.cssFixNamespace],
-        script: [],
+        script: [middleware.selectReconciliationEngine],
     },
 };
 
-class MoedcoLoader extends HTMLElement {
-    // constructor() { } TODO: Add optional constructor syntax, used when built
+class ModulusLoader extends HTMLElement {
+    // constructor() { } TODO: Add optional constructor syntax for programmatic usage
     initialize(namespace, options=null) {
         this.namespace = namespace;
         this.options = options || defaultLoaderOptions;
@@ -120,9 +146,9 @@ class MoedcoLoader extends HTMLElement {
         const attrs = tagInfo.options;
         assert(middlewareArr, 'not midware:', typeName);
         const opts = {
-            loader: this,
-            name: attrs.moedcoComponent,
             attrs,
+            loader: this,
+            name: attrs.modulusComponent,
             reconciliationEngine: attrs.reconciliationEngine || 'none',
             templatingEngine: attrs.templatingEngine || 'Backtick',
         };
@@ -141,38 +167,40 @@ class MoedcoLoader extends HTMLElement {
     }
 
     loadFromDOM(domElement) {
-        const tags = domElement.querySelectorAll('template[moedco-component]');
+        const tags = domElement.querySelectorAll('template[mod-component]');
         for (const tag of tags) {
-            if (tag.getAttribute('moedco-isLoaded')) {
+            if (tag.getAttribute('mod-isLoaded')) {
                 console.log('already loaded:', tag);
                 continue;
             }
-            tag.setAttribute('moedco-isLoaded', true);
+            tag.setAttribute('mod-isLoaded', true);
             this.loadFromDOMElement(tag);
         }
     }
 
-    _genWarnings(child) {
+    _checkNode(child, searchTagName) {
         if (child.nodeType === 3) {
-            // Text node, continue (later generate warning if not whitespace)
-        } else if (!(child.tagName in {SCRIPT:1, STYLE:1, TEMPLATE: 1})) {
-            // Text node, continue (later generate warning)
+            return false; // Text node, continue (later generate warning if not whitespace)
         }
+        const name = (child.tagName || '').toLowerCase();
+        if (!(name in {script: 1, style: 1, template: 1})) {
+            return false; // Invalid node (later generate warning)
+        } else if (name !== searchTagName) {
+            return false;
+        }
+        return true;
     }
 
-    loadTagType(parentElem, childTagName, property='textContent') {
+    loadTagType(parentElem, searchTagName, property='textContent') {
         const results = [];
         for (const childNode of parentElem.content.childNodes) {
-            const {tagName} = childNode;
-            this._genWarnings(childNode);
-            if (!tagName || tagName !== childTagName) {
+            if (!this._checkNode(childNode, searchTagName)) {
                 continue;
             }
             const options = parseAttrs(childNode);
             const content = childNode[property];
             let tagInfo = {options, content};
-            console.log('making taginfo', tagInfo);
-            tagInfo = this.applyMiddleware(childTagName, tagInfo);
+            tagInfo = this.applyMiddleware(searchTagName, tagInfo);
             results.push(tagInfo);
         }
         return results;
@@ -180,16 +208,14 @@ class MoedcoLoader extends HTMLElement {
 
     loadFromDOMElement(elem) {
         const attrs = parseAttrs(elem);
-        console.log('this is elem', elem);
-        const template = this.loadTagType(elem, 'template', 'innerHTML');
         const style = this.loadTagType(elem, 'style');
+        const template = this.loadTagType(elem, 'template', 'innerHTML');
         const script = this.loadTagType(elem, 'script');
-        assert(style.length < 2, 'Mod: only 2 style');
-        assert(script.length < 2, 'Mod: only 2 script');
-        assert(template.length < 2, 'Mod: only 2 template');
-        console.log(style, script, template);
+        assert(style.length < 2, 'Mod: only 2 style'); // later allow for cascading
+        assert(script.length < 2, 'Mod: only 2 script'); // ""
+        assert(template.length < 2, 'Mod: only 2 template'); // later allow for "selection"
         const options = {template, style, script};
-        this.defineComponent(attrs.moedcoComponent, options);
+        this.defineComponent(attrs.modulusComponent, options);
     }
 
     defineComponent(name, options) {
@@ -199,10 +225,10 @@ class MoedcoLoader extends HTMLElement {
     }
 }
 
-customElements.define('moedco-load', MoedcoLoader);
+customElements.define('mod-load', ModulusLoader);
 
 class ComponentFactory {
-    // NOTE: The "dream" is to have an upgraded template like moedco-component
+    // NOTE: The "dream" is to have an upgraded template like mod-component
     // that instantiates these component factories, but the "upgrade" support
     // seems still kinda iffy
     constructor(loader, name, options) {
@@ -220,6 +246,7 @@ class ComponentFactory {
     }
 
     wrapJavaScriptContext(contents) {
+        // TODO, instead of doing this, have a default + look up hierarchy
         const lifecycleFunctions = [
             'initialized', // No-op hook, invoked once when loaded
             'prepare', // Called right before a render, returns template config
@@ -243,50 +270,46 @@ class ComponentFactory {
         `;
     }
 
-    scopedEval(thisContext, namedArgs, code) {
-        const argPairs = Array.from(Object.entries(namedArgs));
-        const argNames = argPairs.map(pair => pair[0]);
-        const argValues = argPairs.map(pair => pair[1]);
-        const func = new Function(...argNames, code);
-        return func.apply(thisContext, argValues);
+    /* Prepares data before render() step of lifecycle */
+    prepareDefaultRenderInfo(component) {
+        const templateInfo = this.getSelected('template');
+        const context = {
+            props: component.props,
+            state: component.state,
+            ...(component.script.get('context') || {}),
+        };
+        return {templateInfo, context};
     }
 
     createClass() {
         // The "script" object represents custom JavaScript in the script
         const script = {};
-        const componentClass = class extends MoedcoComponent {
+        const componentClass = class extends ModulusComponent {
             get script() { return script; }
         };
         const factory = this;
-        const templateInfo = factory.getSelected('template');
+        const meta = this.getSelected('script') || {};
         const scriptContextDefaults = {
             _initialized: () => {},
-            _prepare: () => templateInfo,
-            _render: (props, opts) => {
-                console.log('this is opts', props, opts);
-                opts.compiledTemplate(props);
-            },
+            _prepare: component => factory.prepareDefaultRenderInfo(component),
+            _render: (props, opts) => opts.compiledTemplate(props),
             _updated: () => {},
-            _update: (newContents) => {
+            _update: (newContents, component) => {
                 // component.clearEvents();
-                factory.reconciliationEngine(component, newContents);
+                meta.reconcile(component, newContents);
+                //component.rewriteChildAttributes();
             },
             componentClass,
             factory,
+            meta,
         };
-        const js = this.getSelected('script') || '';
-        console.log('js', js);
-        const wrappedJS = this.wrapJavaScriptContext();
-        console.log('js2', wrappedJS);
-        const scriptValues = this.scopedEval(factory, scriptContextDefaults, wrappedJS);
+        const wrappedJS = this.wrapJavaScriptContext(meta.content || '');
+        const scriptValues = scopedEval(factory, scriptContextDefaults, wrappedJS);
         Object.assign(script, scriptValues);
-        console.log('componentClass', componentClass);
         return componentClass;
     }
 
     getSelected(type) {
-        console.log('this is type', type);
-        console.log('this is options', this.options);
         return this.options[type][0];
     }
 
@@ -296,30 +319,76 @@ class ComponentFactory {
     }
 }
 
-class MoedcoComponent extends HTMLElement {
+class ModulusComponent extends HTMLElement {
+
     constructor() {
         super();
         this.isMounted = false;
         this._originalHTML = this.innerHTML;
     }
 
+    static renderStack = [document.body];
+
     rerender() {
         // Calls all the lifecycle functions in order
-        const templateInfo = this.script.prepare.call(this);
-        const newHTML = this.script.render.call(this, this.props, templateInfo);
-        this.script.update.call(this, newHTML);
+        ModulusComponent.renderStack.push(this);
+        const {context, templateInfo} = this.script.prepare.call(this, this);
+        const newHTML = this.script.render.call(this, context, templateInfo);
+        this.script.update.call(this, newHTML, this);
         this.script.updated.call(this);
+        ModulusComponent.renderStack.pop();
+    }
+
+    makeAttrString() {
+        return Array.from(this.attributes)
+            .map(({name, value}) => `${name}=${JSON.stringify(value)}`).join(' ');
+    }
+
+    wrapHTML(inner) {
+        const attrs = this.makeAttrString();
+        return `<${this.tagName} ${attrs}>${inner}</${this.tagName}>`;
+    }
+
+    _processAttr(name, value) {
+        if (name.endsWith(':')) {
+            if (!this.parentComponent) {
+                throw new Error('No parent components ' + this);
+            }
+            name = name.slice(0, -1); // slice out colon
+            value = this.parentComponent.script.get(value);
+            if (!value) {
+                console.error(`${this.tagName}: ${value} not defined in ${this.parentComponent.tagName}.`);
+            }
+        }
+        return [name, value];
+    }
+
+    buildProps() {
+        this.props = {content: this._originalHTML};
+        const attrs = parseAttrs(this);
+        for (const nameKey of Object.keys(attrs)) {
+            const [name, value] = this._processAttr(nameKey, attrs[nameKey]);
+            this.props[name] = value;
+            this.setAttribute(name, value);
+        }
     }
 
     connectedCallback() {
-        console.log('DELISH');
-        if (moedco.DEBUG) { console.log('<', this.tagName, '>', this); }
-        //this.parentComponent = moedco._stack[moedco._stack.length - 1];
-        //this.buildProps();
-        //this.determineKey();
+        const { length } = ModulusComponent.renderStack;
+        this.parentComponent = ModulusComponent.renderStack[length - 1];
+        if (modulus.DEBUG) { console.log('<', this.tagName, '>', this); }
+        this.buildProps();
         this.rerender();
-        if (moedco.DEBUG) { console.log('</', this.tagName, '>'); }
+        if (modulus.DEBUG) { console.log('</', this.tagName, '>'); }
         this.isMounted = true;
+    }
+
+    attributeChangedCallback(attrName, oldVal, newVal) {
+        if (!this.isMounted) {
+            return;
+        }
+        this.buildProps();
+        this.rerender(true);
     }
 }
 

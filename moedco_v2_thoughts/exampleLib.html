@@ -1,17 +1,75 @@
-<template moedco-component="TestThing">
+<mod-configure
+></mod-configure>
+
+<template mod-component="TestThing">
     <template>
-        <h2>Just a testing thing!</h2>
+        <hr />
+        <h3>Welcome to TestThing</h3>
+        <button onClick:=increment>Count <strong>${state.num}</strong></button>
+        <button onClick:=props.gotClicked>Parent clickies!</button>
+        <hr />
     </template>
 
     <style>
         /* Later, add automatic isolation, e.g. $ h2 is implied */
-        $ h2 {
+        h2 {
             color: blue;
         }
     </style>
+
+    <mod-props
+        gotClicked=Function
+    ></mod-props>
+    <mod-state
+        num:=1000
+        data:=30
+        testArr:='
+            [
+                "a", "b", "c"
+            ]
+        '
+    ></mod-state>
+
     <script>
-        console.log('sHOILD NOT SeeTHIS');
+        console.log('TestThing Factory!');
+        function increment() {
+            let num = this.state.get('num');
+            console.log('hwere we go', num);
+            num++;
+            this.state.set('num', num);
+            this.state.set('data', {
+                some: 'data',
+                example: 20,
+            });
+        }
     </script>
 </template>
 
+
+<template mod-component="ParentThing">
+    <template>
+        <hr />
+        <h1>Welcome to ParentThing</h1>
+        <button onClick:=otherClicky>ParentBtn</button>
+        <my-TestThing
+            gotClicked:=clicky
+        ></my-TestThing>
+        <hr />
+    </template>
+
+    <mod-state num:=10></mod-state>
+
+    <script>
+        function otherClicky() {
+            console.log('other clicky!');
+        }
+        function clicky() {
+            alert('clicky!');
+        }
+    </script>
+</template>
+
+<mod-props
+    title="String"
+></mod-props>
 

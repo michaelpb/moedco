@@ -34,7 +34,7 @@ moedco.ON_EVENT_SELECTOR = Array.from(moedco.ON_EVENTS).map(name => `[${name}]`)
 
 moedco.templatingEngines = {
     Backtick: () => str => ctx => {
-        const code = JSON.stringify(str).replace(/`/, "\`").slice(1, -1);
+        let code = JSON.stringify(str).replace(/`/g, "\`").slice(1, -1);
         return moedco.utils.scopedEval({}, ctx, `return ${code};`);
     },
     TinyTiny: () => {
