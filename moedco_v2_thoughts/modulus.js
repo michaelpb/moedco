@@ -262,9 +262,11 @@ class ModulusLoader extends HTMLElement {
         const script = this.loadTagType(elem, 'script');
         const state = this.loadTagType(elem, 'mod-state');
         const props = this.loadTagType(elem, 'mod-props');
-        assert(style.length < 2, 'Mod: only 2 style'); // later allow for cascading
-        assert(script.length < 2, 'Mod: only 2 script'); // ""
-        assert(template.length < 2, 'Mod: only 2 template'); // later allow for "selection"
+        assert(style.length < 2, 'Mod: only 1 style'); // later allow for cascading
+        assert(script.length < 2, 'Mod: only 1 script'); // ""
+        assert(template.length < 2, 'Mod: only 1 template'); // later allow for "selection"
+        assert(props.length < 2, 'Mod: only 1 props');
+        assert(state.length < 2, 'Mod: only 1 state');
         const options = {template, style, script, state, props};
         this.defineComponent(attrs.modComponent, options);
     }
@@ -307,9 +309,9 @@ class ComponentFactory {
             'use strict';
             ${contents}
             return {
-                get: (name, defaultValue) => {
+                get: (name) => {
                     try { return eval(name); }
-                    catch (e) { return defaultValue; }
+                    catch (e) { return undefined; }
                 },
                 ${lifecycleFunString}
             };
@@ -348,7 +350,6 @@ class ComponentFactory {
             _update: (newContents, component) => {
                 component.clearEvents();
                 meta.reconcile(component, newContents);
-                console.log('reconciling!', component);
                 component.rewriteEvents();
             },
             _updated: () => {},
@@ -432,30 +433,13 @@ class ModulusComponent extends HTMLElement {
         return `<${this.tagName} ${attrs}>${inner}</${this.tagName}>`;
     }
 
-    _processAttr(name, value, parentC) {
-        if (name.endsWith(':')) {
-            assert(parentC, `Parent required for ${name}:="${value}"`);
-            name = name.slice(0, -1); // slice out colon
-
-            // TODO: Finish merging "script" context with "renderInfo" somehow
-            const scriptValue = parentC.script.get(value);
-            // TODO: ERROR: parentC is pointing to TestThing when it should be
-            // pointing to ParentThing
-            console.log('this is scriptvalue', scriptValue, value, this, parentC);
-            if (scriptValue === undefined) {
-                const factory = parentC.factory;
-                const renderInfo = factory.prepareDefaultRenderInfo(parentC);
-                value = scopedEval(parentC, renderInfo.context, 'return ' + value);
-            } else {
-                value = scriptValue;
-            }
-
-            assert(value !== undefined, `${name}:="undefined" (${parentC.tagName})`);
-            if (value instanceof Function) {
-                value = value.bind(parentC);
-            }
+    resolveValue(value) {
+        const scriptValue = this.script.get(value);
+        if (scriptValue !== undefined) {
+            return scriptValue;
         }
-        return [name, value];
+        const renderInfo = this.factory.prepareDefaultRenderInfo(this);
+        return scopedEval(this, renderInfo.context, 'return ' + value);
     }
 
     buildProps() {
@@ -464,13 +448,15 @@ class ModulusComponent extends HTMLElement {
             this.props = null;
             return;
         }
-        this.props = {
-            content: this._originalHTML,
-            ...propsInfo.options,
-        };
-        for (const nameKey of Object.keys(propsInfo.options)) {
-            const val = this.getAttribute(nameKey);
-            const [name, value] = this._processAttr(nameKey, val, this.parentComponent);
+        this.props = {content: this._originalHTML};
+        console.log('this is propsInfo', this.props);
+        for (let name of Object.keys(propsInfo.options)) {
+            let value = this.getAttribute(name);
+            if (name.endsWith(':')) {
+                // TODO: If we have DOCUMENT tier props, then resolve at window instead
+                value = this.parentComponent.resolveValue(value);
+                name = name.slice(0, -1); // trim ':'
+            }
             // if (this.settings.enforceProps) { } // TODO: add enforcement here
             this.props[name] = value;
         }
@@ -494,23 +480,25 @@ class ModulusComponent extends HTMLElement {
 
     rewriteEvents() {
         const elements = this.querySelectorAll(modulus.ON_EVENT_SELECTOR);
-        console.log('elements to rewrite:', elements);
         this.clearEvents(); // just in case
         for (const el of elements) {
             for (const {name, value} of el.attributes) {
-                if (name.slice(-1))
-                if (!modulus.ON_EVENTS.has(name) && !modulus.ON_EVENTS.has(name.slice(0, -1))) {
+                const eventName = name.slice(0, -1);
+                if (!modulus.ON_EVENTS.has(eventName)) {
                     continue;
                 }
+                assert(name.endsWith(':'), 'Events must be resolved attributes');
                 const listener = (...args) => {
-                    console.log('tis hpaening');
-                    this.resolveAttr(name)(...args);
+                    //const currentValue = this.getAttribute(name);
+                    //const func = this.resolveValue(currentValue);
+                    const func = this.resolveValue(value);
+                    assert(func, `Bad ${name} ${value} is ${func}`);
+                    func.apply(this, args);
                 };
-                el.addEventListener(name.slice(2), listener);
-                this.events.push([el, name.slice(2), listener]);
+                el.addEventListener(eventName.slice(2), listener);
+                this.events.push([el, eventName.slice(2), listener]);
             }
         }
-        console.log('this is events', this.events);
     }
 
     clearEvents() {
@@ -535,14 +523,13 @@ class ModulusComponent extends HTMLElement {
 
     resolveAttr(key) {
         const oldValue = this.getAttribute(key);
-        const [name, value] = this._processAttr(key, oldValue, this.parentComponent);
+        const [newName, value] = this._processAttr(key, oldValue, this);
         return value;
     }
 
     createUtilityComponents() {
         const stateObjects = this.factory.options.state;
         for (const {options} of stateObjects) {
-            console.log('this is options', options);
             const elem = document.createElement('mod-state');
             for (const [key, value] of Object.entries(options)) {
                 elem.setAttribute(key, value);
