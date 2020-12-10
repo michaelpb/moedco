@@ -74,9 +74,9 @@ const defaultLifeCycleMethods = {
     initialized: () => {},
     prepare: component => component.factory.prepareDefaultRenderInfo(component),
     render: (context, opts) => opts.compiledTemplate(context),
-    update: (newContents, component) => {
+    update: (component, newContents) => {
         component.clearEvents();
-        meta.reconcile(component, newContents);
+        component.factory.options.meta.reconcile(component, newContents);
         component.rewriteEvents();
     },
     updated: () => {},
@@ -188,11 +188,14 @@ const defaultSettings = {
     factoryMiddleware: {
         template: [middleware.rewriteComponentNamespace, middleware.compileTemplate],
         style: [middleware.cssFixNamespace],
-        script: [middleware.selectReconciliationEngine],
+        script: [],
         'mod-state': [],
         'mod-props': [],
+        'mod-component': [middleware.selectReconciliationEngine],
+        'mod-load': [],
         //'mod-load': [middleware.rewriteTemplateTagsAsScriptTags],
-        'mod-load': [], // This is where we can warn if ':="' occurs (:= should
+        //'mod-load': [middleware.selectReconciliationEngine],
+                        // This is where we can warn if ':="' occurs (:= should
                         // only be for symbols)
     },
     enforceProps: true,
@@ -255,7 +258,7 @@ class ModuloLoader extends HTMLElement {
                 continue;
             }
             tag.setAttribute('mod-isLoaded', true);
-            this.loadFromDOMElement(tag);
+            const factory = this.loadFromDOMElement(tag);//, tagInfo);
         }
     }
 
@@ -292,6 +295,8 @@ class ModuloLoader extends HTMLElement {
 
     loadFromDOMElement(elem) {
         const attrs = parseAttrs(elem);
+        let componentMeta = {content: '', options: attrs};
+        componentMeta = this.applyMiddleware('mod-component', componentMeta);
         const style = this.loadTagType(elem, 'style');
         const template = this.loadTagType(elem, 'template', 'innerHTML');
         const script = this.loadTagType(elem, 'script');
@@ -302,7 +307,7 @@ class ModuloLoader extends HTMLElement {
         assert(template.length < 2, 'Mod: only 1 template'); // later allow for "selection"
         assert(props.length < 2, 'Mod: only 1 props');
         assert(state.length < 2, 'Mod: only 1 state');
-        const options = {template, style, script, state, props};
+        const options = {template, style, script, state, props, meta: componentMeta};
         this.defineComponent(attrs.modComponent, options);
     }
 
@@ -340,7 +345,7 @@ class ComponentFactory {
                     try { return eval(name); }
                     catch (e) {
                         if (superScript) {
-                            superScript.get(name);
+                            return superScript.get(name);
                         } else {
                             return undefined;
                         }
@@ -444,7 +449,7 @@ class ModuloComponent extends HTMLElement {
         this.saveUtilityComponents();
         const {context, templateInfo} = this.script.get('prepare').call(this, this);
         const newHTML = this.script.get('render').call(this, context, templateInfo);
-        this.script.get('update').call(this, newHTML, this);
+        this.script.get('update').call(this, this, newHTML);
         this.script.get('updated').call(this, this);
         this.restoreUtilityComponents();
         this.renderStackPop();
@@ -521,7 +526,7 @@ class ModuloComponent extends HTMLElement {
                     //const func = this.resolveValue(currentValue);
                     console.log('this is value', value, this);
                     const func = this.resolveValue(value);
-                    assert(func, `Bad ${name} ${value} is ${func}`);
+                    assert(func, `Bad ${name}, ${value} is ${func}`);
                     func.apply(this, args);
                 };
                 el.addEventListener(eventName.slice(2), listener);
