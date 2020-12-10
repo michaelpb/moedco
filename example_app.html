@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+    <head>
+        <script>
+            // Small hack
+            module = {};
+            module.exports = {};
+        </script>
+        <script src="./modulus.js"></script>
+        <script src="./tinytiny/index.js"></script>
+        <script src="./node_modules/set-dom/dist/set-dom.js"></script>
+        <!--<script src="./node_modules/morphdom/dist/morphdom.js"></script>-->
+    </head>
+
+    <!--<mod-load namespace="lib" src="./exampleLib.html"></mod-load>-->
+    <mod-load namespace="lib" src="./multipleScriptsTest.html"></mod-load>
+
+    <body>
+        <h1>Modulus.js</h1>
+
+        <lib-TestThing></lib-TestThing>
+        <!--
+        <lib-ParentThing></lib-ParentThing>
+        <lib-ToDo> </lib-ToDo>
+        -->
+    </body>
+</html>

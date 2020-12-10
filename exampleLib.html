@@ -70,26 +70,47 @@
 </template>
 
 <template mod-component="ToDo">
-    <template>
-        <div>
+    <template templating-engine="TinyTiny">
+        <div key="test">
             <h2>To Do List!</h2>
-            ${
-                state.items.map(function(item) {
-                    return '<p onclick:=itemClicked>' + item + '</p>';
-                }).join('')
-            }
+            {% for item in state.items %}
+                <p key="{{ item }}" onclick:=itemClicked>{{ item }}</p>
+            {% endfor %}
+
+            <input
+                value="{{ state.text }}"
+                onkeyup:=currentItemChanged
+                placeholder="type in new item"
+            />
+            <button onclick:=addItem>Add "{{ state.text }}"</button>
         </div>
     </template>
 
     <mod-state
+        text=""
         items:='
             ["Step 1", "Step 2", "step 3"]
         '>
     </mod-state>
 
-    <script>
-        function itemClicked() {
-            alert('item clicked!');
+    <script reconciliation-engine="setdom">
+        function itemClicked(ev) {
+            console.log('item clicked!');
+            const items = this.state.get('items');
+            items.pop();
+            this.state.set('items', items);
+        }
+
+        function addItem() {
+            const items = this.state.get('items');
+            items.push(this.state.get('text'));
+            this.state.set('items', items);
+        }
+
+        function currentItemChanged(ev) {
+            this.state.set('text', ev.target.value);
+            this.querySelector('input').focus();
+            //this.querySelector('input').setSelectionRange(this.state.currentText.length, this.state.currentText.length);
         }
     </script>
 </template>

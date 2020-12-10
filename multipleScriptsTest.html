@@ -1,0 +1,44 @@
+<mod-configure
+></mod-configure>
+
+<template mod-component="TestThing">
+    <template templating-engine="TinyTiny">
+        <hr />
+        <h3>Welcome to TestThing, sweaty</h3>
+        <!-- Idea: Rewrite all events to do this.scopedEval or something, so we
+             can do onclick="increment({ { item|json } })" -->
+        <button onclick:=increment onclick.payload="{{ item }}">
+        Count
+        <hr />
+        {{ state.num }}
+        </button>
+    </template>
+
+    <style>
+        /* Later, add automatic isolation, e.g. $ h2 is implied */
+        h2 {
+            color: blue;
+        }
+    </style>
+
+    <mod-state
+        num:=1000
+    ></mod-state>
+
+    <script>
+        console.log('TestThing Factory1');
+        function increment() {
+            console.log('borken');
+        }
+    </script>
+    <script>
+        console.log('TestThing Factory2');
+        function increment() {
+            console.log('okay');
+            let num = this.state.get('num');
+            num++;
+            this.state.set('num', num);
+        }
+    </script>
+</template>
+

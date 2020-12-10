@@ -52,11 +52,11 @@
       anywhere in the components themselves
 */
 'use strict';
-const modulus = {};
-modulus.DEBUG = true;
-modulus._stack = [document.body];
+const Modulo = {};
+Modulo.DEBUG = true;
+Modulo._stack = [document.body];
 
-modulus.ON_EVENTS = new Set([
+Modulo.ON_EVENTS = new Set([
     'onclick', 'ondblclick', 'onmousedown', 'onmouseup', 'onmouseover',
     'onmousemove', 'onmouseout', 'ondragstart', 'ondrag', 'ondragenter',
     'ondragleave', 'ondragover', 'ondrop', 'ondragend', 'onkeydown',
@@ -66,19 +66,35 @@ modulus.ON_EVENTS = new Set([
 ]);
 
 // TODO: Decide on ":" vs ""
-modulus.ON_EVENT_SELECTOR = Array.from(modulus.ON_EVENTS).map(name => `[${name}\\:]`).join(',');
+Modulo.ON_EVENT_SELECTOR = Array.from(Modulo.ON_EVENTS).map(name => `[${name}\\:]`).join(',');
 // moedco.REWRITE_CHILD_SELECTOR = []; // TODO: Select only children with : in property name
 
+
+const defaultLifeCycleMethods = {
+    initialized: () => {},
+    prepare: component => component.factory.prepareDefaultRenderInfo(component),
+    render: (context, opts) => opts.compiledTemplate(context),
+    update: (newContents, component) => {
+        component.clearEvents();
+        meta.reconcile(component, newContents);
+        component.rewriteEvents();
+    },
+    updated: () => {},
+};
+const baseScript = {get: key => defaultLifeCycleMethods[key]};
 
 const adapters = {
     templating: {
         Backtick: () => str => {
             let html = JSON.stringify(str).replace(/`/g, "\`").slice(1, -1);
-            html = html.replace(/&amp;/g, '&');
+            html = html.replace(/&amp;/g, '&'); // probably not needed
             const code = `return \`${html.trim()}\`;`
             return context => scopedEval(null, (context || {}), code);
         },
-        TinyTiny: () => require('tinytiny'),
+        TinyTiny: () => {
+            assert(window.TinyTiny, 'TinyTiny is not loaded at window.TinyTiny');
+            return window.TinyTiny;
+        },
     },
     reconciliation: {
         none: () => (component, html) => {
@@ -120,6 +136,14 @@ const middleware = {
         const reconcile = adapters.reconciliation[opts.reconciliationEngine]();
         return {...metaInfo, reconcile};
     },
+    rewriteTemplateTagsAsScriptTags(info, opts) {
+        // NOTE: May need to create a simple helper library of HTML parsing,
+        // for both this and componentNamespace and maybe CSS "it's easy"
+        return {
+            ...info,
+            content: info.content.replace(/<template /ig, '<script type="Modulo/template"'),
+        };
+    },
 };
 
 function parseAttrs(elem, processColons) {
@@ -140,7 +164,7 @@ function parseAttrs(elem, processColons) {
 function assert(value, ...messages) {
     if (!value) {
         const message = Array.from(messages).join(' - ');
-        throw new Error(`Modulus Error: "${message}"`)
+        throw new Error(`Modulo Error: "${message}"`)
     }
 }
 
@@ -167,12 +191,18 @@ const defaultSettings = {
         script: [middleware.selectReconciliationEngine],
         'mod-state': [],
         'mod-props': [],
+        //'mod-load': [middleware.rewriteTemplateTagsAsScriptTags],
+        'mod-load': [], // This is where we can warn if ':="' occurs (:= should
+                        // only be for symbols)
     },
     enforceProps: true,
 };
 
-class ModulusLoader extends HTMLElement {
-    // constructor() { } TODO: Add optional constructor syntax for programmatic usage
+class ModuloLoader extends HTMLElement {
+    constructor(...args) {
+        super()
+        this.initialize.apply(this, args);
+    }
     initialize(namespace, settings=null) {
         this.namespace = namespace;
         this.settings = Object.assign({}, settings || defaultSettings);
@@ -208,7 +238,9 @@ class ModulusLoader extends HTMLElement {
     loadString(text) {
         const frag = new DocumentFragment();
         const div = document.createElement('div');
-        div.innerHTML = text;
+        const tagInfo = {content: text, options: parseAttrs(this)};
+        const {content} = this.applyMiddleware('mod-load', tagInfo);
+        div.innerHTML = content;
         frag.append(div);
         this.loadFromDOM(div);
     }
@@ -216,7 +248,7 @@ class ModulusLoader extends HTMLElement {
     loadFromDOM(domElement) {
         const elem = domElement.querySelector('mod-settings');
         Object.assign(this.settings, (elem || {}).settings);
-        const tags = domElement.querySelectorAll('template[mod-component]');
+        const tags = domElement.querySelectorAll('[mod-component]');
         for (const tag of tags) {
             if (tag.getAttribute('mod-isLoaded')) {
                 console.log('already loaded:', tag);
@@ -231,14 +263,16 @@ class ModulusLoader extends HTMLElement {
         if (child.nodeType === 3) {
             return false; // Text node, continue (later generate warning if not whitespace)
         }
-        const name = (child.tagName || '').toLowerCase();
-        if (!(name in {script: 1, style: 1, template: 1, 'mod-state': 1, 'mod-props': 1})) {
-            console.error('Modulus - Unknown tag in component def:', name);
-            return false; // Invalid node (later generate warning)
-        } else if (name !== searchTagName) {
-            return false;
+        let name = (child.tagName || '').toLowerCase();
+        const splitType = (child.getAttribute('type') || '').split('/');
+        if (splitType[0] === 'Modulo') {
+            name = splitType[1];
         }
-        return true;
+        if (!(name in {script: 1, style: 1, template: 1, 'mod-state': 1, 'mod-props': 1})) {
+            console.error('Modulo - Unknown tag in component def:', name);
+            return false; // Invalid node (later generate warning)
+        }
+        return name === searchTagName;
     }
 
     loadTagType(parentElem, searchTagName, property='textContent') {
@@ -264,7 +298,7 @@ class ModulusLoader extends HTMLElement {
         const state = this.loadTagType(elem, 'mod-state');
         const props = this.loadTagType(elem, 'mod-props');
         assert(style.length < 2, 'Mod: only 1 style'); // later allow for cascading
-        assert(script.length < 2, 'Mod: only 1 script'); // ""
+        assert(script.length < 3, 'Mod: only 1 script'); // ""
         assert(template.length < 2, 'Mod: only 1 template'); // later allow for "selection"
         assert(props.length < 2, 'Mod: only 1 props');
         assert(state.length < 2, 'Mod: only 1 state');
@@ -279,12 +313,13 @@ class ModulusLoader extends HTMLElement {
     }
 }
 
-customElements.define('mod-load', ModulusLoader);
+customElements.define('mod-load', ModuloLoader);
 
 class ComponentFactory {
     // NOTE: The "dream" is to have an upgraded template like mod-component
     // that instantiates these component factories, but the "upgrade" support
     // seems still kinda iffy
+    // Dream alternative: Use mod-load
     constructor(loader, name, options) {
         assert(name, 'Name must be given.');
         this.loader = loader;
@@ -296,25 +331,22 @@ class ComponentFactory {
 
     wrapJavaScriptContext(contents) {
         // TODO, instead of doing this, have a default + look up hierarchy
-        const lifecycleFunctions = [
-            'initialized', // No-op hook, invoked once when loaded
-            'prepare', // Called right before a render, returns template config
-            'render', // Invokes the template
-            'update', // Performs the update itself
-            'updated', // No-op hook, invoked after render
-        ];
-        const lifecycleFunString = lifecycleFunctions.map(name => `
-                ${name}: (typeof ${name} === "undefined") ? _${name} : ${name},
-            `).join('');
         return `
             'use strict';
+            const module = {exports: {}};
             ${contents}
             return {
                 get: (name) => {
                     try { return eval(name); }
-                    catch (e) { return undefined; }
+                    catch (e) {
+                        if (superScript) {
+                            superScript.get(name);
+                        } else {
+                            return undefined;
+                        }
+                    }
                 },
-                ${lifecycleFunString}
+                ...module.exports,
             };
         `;
     }
@@ -329,11 +361,23 @@ class ComponentFactory {
         return {templateInfo, context};
     }
 
+    evalConstructorScript(meta, superScript) {
+        const factory = this;
+        const scriptContextDefaults = {superScript, factory, meta};
+        const wrappedJS = this.wrapJavaScriptContext(meta.content || '');
+        return scopedEval(factory, scriptContextDefaults, wrappedJS);
+    }
+
     createClass() {
         // The "script" object represents custom JavaScript in the script
-        const script = {};
+        let superScript = baseScript;
+        let script = null;
+        for (const meta of this.options.script) {
+            script = this.evalConstructorScript(meta, superScript);
+            superScript = script;
+        }
         const factory = this;
-        const componentClass = class extends ModulusComponent {
+        const componentClass = class extends ModuloComponent {
             get script() { return script; }
             get factory() { return factory; }
             static get observedAttributes() {
@@ -343,24 +387,6 @@ class ComponentFactory {
                 return [];
             }
         };
-        const meta = this.getSelected('script') || {};
-        const scriptContextDefaults = {
-            _initialized: () => {},
-            _prepare: component => factory.prepareDefaultRenderInfo(component),
-            _render: (context, opts) => opts.compiledTemplate(context),
-            _update: (newContents, component) => {
-                component.clearEvents();
-                meta.reconcile(component, newContents);
-                component.rewriteEvents();
-            },
-            _updated: () => {},
-            componentClass,
-            factory,
-            meta,
-        };
-        const wrappedJS = this.wrapJavaScriptContext(meta.content || '');
-        const scriptValues = scopedEval(factory, scriptContextDefaults, wrappedJS);
-        Object.assign(script, scriptValues);
         return componentClass;
     }
 
@@ -374,19 +400,19 @@ class ComponentFactory {
     }
 }
 
-class ModulusComponent extends HTMLElement {
+class ModuloComponent extends HTMLElement {
     static renderStack = [document.body];
     static renderStackPeak() {
-        const { length } = ModulusComponent.renderStack;
-        return ModulusComponent.renderStack[length - 1];
+        const { length } = ModuloComponent.renderStack;
+        return ModuloComponent.renderStack[length - 1];
     }
     renderStackPush() {
-        ModulusComponent.renderStack.push(this);
+        ModuloComponent.renderStack.push(this);
     }
     renderStackPop() {
-        ModulusComponent.renderStack.pop();
+        ModuloComponent.renderStack.pop();
     }
-    get isModulusComponent() {
+    get isModuloComponent() {
         return true;
     }
 
@@ -416,10 +442,10 @@ class ModulusComponent extends HTMLElement {
             this.createUtilityComponents();
         }
         this.saveUtilityComponents();
-        const {context, templateInfo} = this.script.prepare.call(this, this);
-        const newHTML = this.script.render.call(this, context, templateInfo);
-        this.script.update.call(this, newHTML, this);
-        this.script.updated.call(this, this);
+        const {context, templateInfo} = this.script.get('prepare').call(this, this);
+        const newHTML = this.script.get('render').call(this, context, templateInfo);
+        this.script.get('update').call(this, newHTML, this);
+        this.script.get('updated').call(this, this);
         this.restoreUtilityComponents();
         this.renderStackPop();
     }
@@ -479,13 +505,13 @@ class ModulusComponent extends HTMLElement {
     }
 
     rewriteEvents() {
-        const elements = this.querySelectorAll(modulus.ON_EVENT_SELECTOR);
+        const elements = this.querySelectorAll(Modulo.ON_EVENT_SELECTOR);
         this.clearEvents(); // just in case
         for (const el of elements) {
             for (const name of el.getAttributeNames()) {
                 const value = el.getAttribute(name);
                 const eventName = name.slice(0, -1);
-                if (!modulus.ON_EVENTS.has(eventName)) {
+                if (!Modulo.ON_EVENTS.has(eventName)) {
                     continue;
                 }
                 assert(name.endsWith(':'), 'Events must be resolved attributes');
@@ -523,13 +549,13 @@ class ModulusComponent extends HTMLElement {
     }
 
     connectedCallback() {
-        const { length } = ModulusComponent.renderStack;
-        this.parentComponent = ModulusComponent.renderStackPeak();
-        if (modulus.DEBUG) { console.log('<', this.tagName, '>', this); }
+        const { length } = ModuloComponent.renderStack;
+        this.parentComponent = ModuloComponent.renderStackPeak();
+        if (Modulo.DEBUG) { console.log('<', this.tagName, '>', this); }
         this.buildProps();
-        this.script.initialized.call(this, this);
+        this.script.get('initialized').call(this, this);
         this.rerender();
-        if (modulus.DEBUG) { console.log('</', this.tagName, '>'); }
+        if (Modulo.DEBUG) { console.log('</', this.tagName, '>'); }
         this.isMounted = true;
     }
 
@@ -542,16 +568,16 @@ class ModulusComponent extends HTMLElement {
     }
 }
 
-class ModulusConfigure extends HTMLElement {
+class ModuloConfigure extends HTMLElement {
     static defaultSettings = {};
     connectedCallback() {
         this.settings = parseAttrs(this);
     }
     // attributeChangedCallback() {} // TODO - allow live configuration
 }
-customElements.define('mod-configure', ModulusConfigure);
+customElements.define('mod-configure', ModuloConfigure);
 
-class ModulusState extends HTMLElement {
+class ModuloState extends HTMLElement {
     get(key) {
         if (this.hasAttribute(key + ':')) {
             const value = this.getAttribute(key + ':');
@@ -569,7 +595,7 @@ class ModulusState extends HTMLElement {
     }
 
     connectedCallback() {
-        this.parentComponent = ModulusComponent.renderStackPeak();
+        this.parentComponent = ModuloComponent.renderStackPeak();
         this.parentComponent.state = this; // Currently assumes 1 state
         if (!this.isMounted) {
             this.defaults = parseAttrs(this, true);
@@ -582,10 +608,10 @@ class ModulusState extends HTMLElement {
         this.parentComponent.rerender();
     }
 }
-customElements.define('mod-state', ModulusState);
+customElements.define('mod-state', ModuloState);
 
-class ModulusProps extends HTMLElement {}
-customElements.define('mod-props', ModulusProps);
+class ModuloProps extends HTMLElement {}
+customElements.define('mod-props', ModuloProps);
 
 
 /*
@@ -595,7 +621,7 @@ Rules
 3. Rewrite on he fly
 
 Situations:
-  1. Modulus component
+  1. Modulo component
     - Rewrite, set each as observable (OR use mutation observer hack, only used
                                        when debug mode is on)
   2. Child component
